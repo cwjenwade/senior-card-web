@@ -1,36 +1,106 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Jenny M01 Admin + LINE Webhook
 
-## Getting Started
+This app is the Vercel-hosted control panel for `M01 長輩圖`.
 
-First, run the development server:
+It serves two jobs:
+
+1. A web dashboard for card library, templates, recommendation rules, and LINE interaction review.
+2. A LINE Messaging API webhook implemented in Next.js / Node.
+
+The elder-facing experience is intended to run inside LINE with buttons and Flex Messages. This website is the operator backend.
+
+## Local Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Dashboard: `http://localhost:3000`
+- Webhook health check: `http://localhost:3000/api/line/webhook`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment Variables
 
-## Learn More
+Create `.env.local`:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+cp .env.example .env.local
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Required values:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+LINE_CHANNEL_SECRET=your_line_channel_secret
+LINE_CHANNEL_ACCESS_TOKEN=your_line_channel_access_token
+```
 
-## Deploy on Vercel
+## LINE Webhook
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Route:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+/api/line/webhook
+```
+
+In local dev, the route is:
+
+```text
+http://localhost:3000/api/line/webhook
+```
+
+In production on Vercel, the route will be:
+
+```text
+https://your-domain/api/line/webhook
+```
+
+The webhook currently supports:
+
+- Text trigger:
+  - `長輩圖`
+  - `今日長輩圖`
+  - `m01`
+- Button flow:
+  - mood selection
+  - text type selection
+  - visual series selection
+  - return three recommended cards
+  - select / dislike card
+- Temporary diary input pattern:
+  - message starting with `日記：`
+
+## Current M01 Design Boundary
+
+This app can do:
+
+- Manage pre-made greeting cards
+- Manage template presets
+- Configure recommendation weights
+- Reply to LINE webhook events
+- Return Flex Message card recommendations
+
+This app does not yet do:
+
+- Persist LINE selections to a database
+- Persist diary text to formal M02 storage
+- Run E02 / E03 training inside Vercel
+- Make care decisions automatically
+
+## Build Check
+
+```bash
+npm run lint
+npm run build
+```
+
+## Deploy
+
+This project is already linked to the Vercel project `v0-line-senior-card`.
+
+Deploy with:
+
+```bash
+vercel --prod
+```
