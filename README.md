@@ -140,6 +140,32 @@ M02 diary rules:
 - more than `300` is rejected
 - one completed entry per day
 
+## Rich Menu Setup
+
+This project includes a minimal two-slot LINE Rich Menu for testing:
+
+- left: `製作長輩圖`
+- right: `寫日記換雞蛋`
+
+Generate and bind it with:
+
+```bash
+npm run line:create-rich-menu
+```
+
+This script will:
+
+1. check `LINE_CHANNEL_ACCESS_TOKEN`
+2. generate `public/rich-menu-m01-m02.png`
+3. create a LINE rich menu
+4. upload the image
+5. set it as the default rich menu
+
+After creating the rich menu, test in LINE:
+
+1. tap `製作長輩圖` -> should enter M01
+2. tap `寫日記換雞蛋` -> should enter M02
+
 ## Current Runtime Storage
 
 M01 and M02 currently use in-memory stores:

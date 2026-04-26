@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="2500" height="1686" viewBox="0 0 2500 1686" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1250" height="1686" fill="#F2A65A"/>
+  <rect x="1250" width="1250" height="1686" fill="#7FB069"/>
+  <rect x="1226" y="160" width="48" height="1366" rx="24" fill="rgba(255,255,255,0.45)"/>
+  <text x="625" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">製作</text>
+  <text x="625" y="860" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">長輩圖</text>
+  <text x="625" y="1100" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="64" font-weight="600" fill="#FFF7ED">M01 Greeting Cards</text>
+  <text x="1875" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">寫日記</text>
+  <text x="1875" y="860" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">換雞蛋</text>
+  <text x="1875" y="1100" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="64" font-weight="600" fill="#F7FFF0">M02 Daily Diary</text>
+</svg>

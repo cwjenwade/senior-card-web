@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "line:create-rich-menu": "node scripts/create-rich-menu.mjs"
   },
   "dependencies": {
     "next": "16.2.4",
