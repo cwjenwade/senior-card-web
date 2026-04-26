@@ -106,6 +106,14 @@ function canUseSupabase() {
   return Boolean(resolveSupabaseRestUrl() && supabaseHeaders());
 }
 
+export function getSupabaseStorageConfig() {
+  return {
+    enabled: canUseSupabase(),
+    interactionsTable: INTERACTIONS_TABLE,
+    diaryTable: DIARY_TABLE,
+  };
+}
+
 async function supabaseInsert(table: string, record: unknown) {
   const baseUrl = resolveSupabaseRestUrl();
   const headers = supabaseHeaders();
@@ -148,6 +156,48 @@ async function supabaseRead<T>(table: string, query: string) {
   }
 
   return (await response.json()) as T[];
+}
+
+export async function runSupabaseKeepalive() {
+  const baseUrl = resolveSupabaseRestUrl();
+  const headers = supabaseHeaders();
+
+  if (!baseUrl || !headers) {
+    throw new Error("Supabase env is not configured");
+  }
+
+  const targets = [
+    {
+      table: INTERACTIONS_TABLE,
+      url: `${baseUrl}/${INTERACTIONS_TABLE}?select=id&limit=1`,
+    },
+    {
+      table: DIARY_TABLE,
+      url: `${baseUrl}/${DIARY_TABLE}?select=id&limit=1`,
+    },
+  ];
+
+  const results: Array<{ table: string; status: number }> = [];
+
+  for (const target of targets) {
+    const response = await fetch(target.url, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Supabase keepalive failed for ${target.table}: ${response.status} ${text}`);
+    }
+
+    results.push({
+      table: target.table,
+      status: response.status,
+    });
+  }
+
+  return results;
 }
 
 export async function appendInteractionEvent(event: StoredInteractionEvent) {
