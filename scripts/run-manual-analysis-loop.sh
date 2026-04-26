@@ -39,21 +39,24 @@ for name, headers in files.items():
         writer.writerow(headers)
 PY
 else
-  "${PYTHON_BIN}" "${ML_DIR}/src/analyze_diary.py" \
-    --input "${ML_DIR}/data/jenny_diary_export.csv" \
-    --entry-output "${ML_DIR}/data/jenny_diary_analysis_out.csv" \
-    --summary-output "${ML_DIR}/data/jenny_diary_summary_out.csv"
+  (
+    cd "${ML_DIR}"
+    "${PYTHON_BIN}" "src/analyze_diary.py" \
+      --input "data/jenny_diary_export.csv" \
+      --entry-output "data/jenny_diary_analysis_out.csv" \
+      --summary-output "data/jenny_diary_summary_out.csv"
 
-  "${PYTHON_BIN}" "${ML_DIR}/src/run_e02_prediction.py" \
-    --input "${ML_DIR}/data/jenny_raw_diary_export.csv" \
-    --output "${ML_DIR}/data/jenny_e02_predictions_out.csv" \
-    --model-version "${MODEL_VERSION}"
+    "${PYTHON_BIN}" "src/run_e02_prediction.py" \
+      --input "data/jenny_raw_diary_export.csv" \
+      --output "data/jenny_e02_predictions_out.csv" \
+      --model-version "${MODEL_VERSION}"
 
-  "${PYTHON_BIN}" "${ML_DIR}/src/run_e03_rules.py" \
-    --predictions "${ML_DIR}/data/jenny_e02_predictions_out.csv" \
-    --raw "${ML_DIR}/data/jenny_raw_diary_export.csv" \
-    --manual-review "${ML_DIR}/data/jenny_manual_review_out.csv" \
-    --queue "${ML_DIR}/data/jenny_care_queue_out.csv"
+    "${PYTHON_BIN}" "src/run_e03_rules.py" \
+      --predictions "data/jenny_e02_predictions_out.csv" \
+      --raw "data/jenny_raw_diary_export.csv" \
+      --manual-review "data/jenny_manual_review_out.csv" \
+      --queue "data/jenny_care_queue_out.csv"
+  )
 fi
 
 python3 scripts/jenny_batch_bridge.py import-analysis \

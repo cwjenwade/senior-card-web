@@ -65,7 +65,7 @@ export type DiaryEntryRow = {
   analysis_status: string;
   model_version?: string;
   rule_version?: string;
-  analysis_run_at?: string;
+  analysis_run_at?: string | null;
   created_at: string;
 };
 
@@ -462,6 +462,6 @@ export function normalizeDiaryAnalysis(raw: Partial<DiaryEntryRow>) {
     analysis_status: String(raw.analysis_status ?? "pending"),
     model_version: String(raw.model_version ?? ""),
     rule_version: String(raw.rule_version ?? ""),
-    analysis_run_at: String(raw.analysis_run_at ?? ""),
+    analysis_run_at: raw.analysis_run_at ? String(raw.analysis_run_at) : null,
   };
 }

@@ -1,6 +1,6 @@
 # Manual Analysis Loop Report
 
-Generated at: 2026-04-26T23:32:50
+Generated at: 2026-04-27T00:17:20
 
 ## Inputs
 
@@ -18,28 +18,28 @@ Generated at: 2026-04-26T23:32:50
 ## Results
 
 - participants created: 0
-- diary rows upserted: 0
-- egg progress rows upserted: 0
+- diary rows upserted: 1
+- egg progress rows upserted: 1
 - partner queue rows upserted: 0
 - internal review queue rows upserted: 0
 
 ## Table availability
 
-- participants: local-fallback
-- card_preferences: local-fallback
-- card_interactions: local-fallback
-- daily_card_recommendations: local-fallback
-- guided_diary_prompts: local-fallback
-- diary_entries: local-fallback
-- egg_progress: local-fallback
-- partner_links: local-fallback
-- partner_prompt_queue: local-fallback
-- internal_review_queue: local-fallback
+- participants: remote
+- card_preferences: remote
+- card_interactions: remote
+- daily_card_recommendations: remote
+- guided_diary_prompts: remote
+- diary_entries: remote
+- egg_progress: remote
+- partner_links: remote
+- partner_prompt_queue: remote
+- internal_review_queue: remote
 
 ## Current blockers
 
-- remote product tables missing: yes
-- exported diary rows were zero: yes
+- remote product tables missing: no
+- exported diary rows were zero: no
 
 ## Next actions
 

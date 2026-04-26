@@ -118,6 +118,7 @@ create table if not exists public.partner_prompt_queue (
   status text not null default 'partner_prompt',
   model_version text not null default '',
   rule_version text not null default '',
+  trigger_date date not null default current_date,
   created_at timestamptz not null default now()
 );
 
@@ -130,6 +131,7 @@ create table if not exists public.internal_review_queue (
   status text not null default 'pending_review',
   model_version text not null default '',
   rule_version text not null default '',
+  trigger_date date not null default current_date,
   created_at timestamptz not null default now()
 );
 
@@ -138,8 +140,10 @@ alter table if exists public.diary_entries add column if not exists rule_version
 alter table if exists public.diary_entries add column if not exists analysis_run_at timestamptz;
 alter table if exists public.partner_prompt_queue add column if not exists model_version text not null default '';
 alter table if exists public.partner_prompt_queue add column if not exists rule_version text not null default '';
+alter table if exists public.partner_prompt_queue add column if not exists trigger_date date not null default current_date;
 alter table if exists public.internal_review_queue add column if not exists model_version text not null default '';
 alter table if exists public.internal_review_queue add column if not exists rule_version text not null default '';
+alter table if exists public.internal_review_queue add column if not exists trigger_date date not null default current_date;
 
 create table if not exists public.line_interaction_events (
   id text primary key,
@@ -170,8 +174,8 @@ create table if not exists public.line_diary_entries (
 create unique index if not exists idx_card_interactions_day_action on public.card_interactions (participant_id, interaction_date, card_id, action_type);
 create unique index if not exists idx_daily_card_recommendations_unique on public.daily_card_recommendations (participant_id, recommendation_date, rank_order);
 create unique index if not exists idx_guided_diary_prompts_unique on public.guided_diary_prompts (participant_id, prompt_date);
-create unique index if not exists idx_partner_prompt_queue_dedupe on public.partner_prompt_queue (participant_id, trigger_type, (created_at::date));
-create unique index if not exists idx_internal_review_queue_dedupe on public.internal_review_queue (participant_id, trigger_type, (created_at::date));
+create unique index if not exists idx_partner_prompt_queue_dedupe on public.partner_prompt_queue (participant_id, trigger_type, trigger_date);
+create unique index if not exists idx_internal_review_queue_dedupe on public.internal_review_queue (participant_id, trigger_type, trigger_date);
 
 create index if not exists idx_diary_entries_participant_date on public.diary_entries (participant_id, entry_date desc);
 create index if not exists idx_egg_progress_window on public.egg_progress (window_end desc);
