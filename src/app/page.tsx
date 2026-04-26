@@ -40,6 +40,9 @@ export default async function HomePage() {
             <Link className="rounded-full bg-amber-300 px-4 py-2 font-medium text-stone-950" href="/api/admin/system-check">
               查看 system check JSON
             </Link>
+            <Link className="rounded-full border border-sky-700 px-4 py-2 text-sky-100" href="/cards">
+              長輩圖管理後台
+            </Link>
             <form action="/api/admin/queues/run" method="post">
               <button className="rounded-full border border-stone-600 px-4 py-2 text-stone-100" type="submit">
                 手動跑一次 queue 偵測

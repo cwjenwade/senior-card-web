@@ -46,9 +46,11 @@ APP_BASE_URL=
 ## Current Routes
 
 - `/`
+- `/cards`
 - `/api/line/webhook`
 - `/api/m01/cards/[cardId]/image`
 - `/api/cron/supabase-keepalive`
+- `/api/admin/cards`
 - `/api/admin/system-check`
 - `/api/admin/queues/run`
 - `/api/admin/queues/update`
@@ -62,6 +64,7 @@ Current v1 behavior:
 - enter from rich menu or text trigger
 - show 3 daily recommended cards
 - render cards in a LINE Flex carousel
+- read card metadata and `image_url` from `card_catalog`
 - allow one daily main-card selection
 - allow one refresh per day
 - write recommendation snapshots to `daily_card_recommendations`
@@ -116,6 +119,7 @@ Current v1 behavior:
   1. ask for display name
   2. ask the elder to select 3 liked cards
   3. ask whether a fixed partner reminder is welcome
+- liked-card selection also reads from `card_catalog.image_url`
 - write results to `participants`, `card_preferences`, and optional `partner_links`
 - if already configured, show a compact summary
 
@@ -183,6 +187,43 @@ Legacy compatibility tables still used:
 - `line_diary_entries`
 
 If the formal product tables do not yet exist in Supabase, the app falls back to local JSON storage under `storage/product-store` for the new product tables while still using legacy webhook-compatible storage where available.
+
+## External Card Asset Mode
+
+This project now treats elder-card images as external assets.
+
+- image files are not stored in Supabase Storage
+- this project stores only card metadata plus `image_url`
+- new cards are created from the lightweight admin page at `/cards`
+- recommendation, interaction, and diary linkage still use `card_id`
+- future providers can be Cloudinary, ImageKit, or any externally hosted image URL
+
+Current behavior:
+
+- `M01`, `M03`, and the rule-based `E01` recommendation path read from `card_catalog`
+- displayed card images use `image_url`
+- built-in CC0 fallback is disabled as a formal source
+- `/api/m01/cards/[cardId]/image` remains only as a legacy redirect to the external `image_url`
+
+Current minimal `card_catalog` fields:
+
+- `card_id`
+- `card_title`
+- `image_provider`
+- `image_url`
+- `image_key`
+- `style_main`
+- `style_sub`
+- `tone`
+- `imagery`
+- `text_density`
+- `energy_level`
+- `caption_text`
+- `default_prompt`
+- `status`
+- `uploaded_by`
+- `created_at`
+- `updated_at`
 
 ## Rich Menu
 

@@ -1,3 +1,6 @@
+import { readLocalTable, writeLocalTable } from "@/lib/local-table-store";
+import { canUseSupabase, hasTable, resolveSupabaseRestUrl, supabaseHeaders, supabaseInsert, supabaseSelect } from "@/lib/supabase-rest";
+
 export type TextType =
   | "問安語"
   | "勵志語"
@@ -8,19 +11,35 @@ export type VisualSeries =
   | "神佛系列"
   | "山林系列";
 
+export type CardStatus = "active" | "draft" | "inactive" | "archived";
+
 export type CardAsset = {
   id: string;
+  cardId: string;
   title: string;
+  cardTitle: string;
+  imageProvider: string;
+  imageUrl: string;
+  imageKey: string;
+  styleMain: TextType;
+  styleSub: string;
+  tone: "溫和" | "明亮" | "平靜" | "陪伴";
+  imagery: VisualSeries;
+  textDensity: "short" | "medium";
+  energyLevel: "steady" | "uplift" | "calm";
+  caption: string;
+  captionText: string;
+  prompt: string;
+  defaultPrompt: string;
+  status: CardStatus;
+  uploadedBy: string;
+  createdAt: string;
+  updatedAt: string;
+
   textType: TextType;
   visualSeries: VisualSeries;
-  tone: "溫和" | "明亮" | "平靜" | "陪伴";
-  caption: string;
-  prompt: string;
-  status: "active" | "draft" | "archived";
   cc0Source: string;
-  imageUrl: string;
   fontSize: "large" | "medium";
-  textDensity: "short" | "medium";
   colorTone: "warm" | "calm" | "bright";
   religiousContent: "none" | "medium" | "high";
   emoji: string;
@@ -29,24 +48,57 @@ export type CardAsset = {
   accent: string;
 };
 
-type CardRow = {
-  id: string;
-  title: string;
-  text_type: TextType;
-  visual_series: VisualSeries;
-  tone: CardAsset["tone"];
-  caption: string;
-  prompt: string;
-  status: CardAsset["status"];
-  cc0_source: string;
+export type CardCatalogRow = {
+  card_id: string;
+  card_title: string;
+  image_provider?: string;
   image_url: string;
-  font_size: CardAsset["fontSize"];
+  image_key?: string;
+  style_main: TextType;
+  style_sub: string;
+  tone: CardAsset["tone"];
+  imagery: VisualSeries;
   text_density: CardAsset["textDensity"];
-  color_tone: CardAsset["colorTone"];
-  religious_content: CardAsset["religiousContent"];
+  energy_level: CardAsset["energyLevel"];
+  caption_text: string;
+  default_prompt?: string;
+  status: CardStatus;
+  uploaded_by?: string;
+  created_at?: string;
+  updated_at?: string;
+
+  id?: string;
+  title?: string;
+  text_type?: TextType;
+  visual_series?: VisualSeries;
+  caption?: string;
+  prompt?: string;
+  cc0_source?: string;
+  font_size?: CardAsset["fontSize"];
+  color_tone?: CardAsset["colorTone"];
+  religious_content?: CardAsset["religiousContent"];
+};
+
+export type CardCatalogUpsertInput = {
+  cardId?: string;
+  cardTitle: string;
+  imageProvider?: string;
+  imageUrl: string;
+  imageKey?: string;
+  styleMain: TextType;
+  styleSub: string;
+  tone: CardAsset["tone"];
+  imagery: VisualSeries;
+  textDensity: CardAsset["textDensity"];
+  energyLevel: CardAsset["energyLevel"];
+  captionText: string;
+  defaultPrompt: string;
+  status: CardStatus;
+  uploadedBy?: string;
 };
 
 const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
+let extendedColumnsSupport: boolean | null = null;
 
 export const textTypes: TextType[] = ["問安語", "勵志語", "神佛金句"];
 
@@ -59,45 +111,25 @@ export const visualSeriesOptions: VisualSeries[] = [
 const textTypeConfigs: Record<
   TextType,
   {
-    tone: CardAsset["tone"];
     fontSize: CardAsset["fontSize"];
-    textDensity: CardAsset["textDensity"];
     colorTone: CardAsset["colorTone"];
     religiousContent: CardAsset["religiousContent"];
-    titles: string[];
-    captions: string[];
-    prompt: string;
   }
 > = {
   問安語: {
-    tone: "溫和",
     fontSize: "large",
-    textDensity: "short",
     colorTone: "calm",
     religiousContent: "none",
-    titles: ["早安", "午安", "平安問候"],
-    captions: ["願你今天平安順心，心情輕鬆。", "送上一句問安，願你今天舒服自在。", "今天也記得照顧自己，慢慢來就好。"],
-    prompt: "選一張今天的問安圖。",
   },
   勵志語: {
-    tone: "明亮",
     fontSize: "medium",
-    textDensity: "medium",
     colorTone: "bright",
     religiousContent: "none",
-    titles: ["日日都有光", "一步一步來", "慢慢也很好"],
-    captions: ["放慢腳步，今天也能有好心情。", "願你心裡有光，日子一天比一天安穩。", "好事慢慢來，福氣也會慢慢來。"],
-    prompt: "選一張今天的勵志圖。",
   },
   神佛金句: {
-    tone: "平靜",
     fontSize: "large",
-    textDensity: "short",
     colorTone: "calm",
     religiousContent: "high",
-    titles: ["佛光護佑", "福慧圓滿", "心安得福"],
-    captions: ["願你平安健康，福慧常伴左右。", "一念清淨，願今天事事安好。", "心安就是福，願福氣常在。"],
-    prompt: "選一張今天的神佛金句圖。",
   },
 };
 
@@ -108,151 +140,405 @@ const visualSeriesConfigs: Record<
     bgStart: string;
     bgEnd: string;
     accent: string;
-    label: string;
   }
 > = {
-  花系列: { emoji: "🌸", bgStart: "#fff1f2", bgEnd: "#fecdd3", accent: "#be123c", label: "花開暖暖" },
-  神佛系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412", label: "安心靜心" },
-  山林系列: { emoji: "🌿", bgStart: "#ecfccb", bgEnd: "#bbf7d0", accent: "#166534", label: "山林清氣" },
+  花系列: { emoji: "🌸", bgStart: "#fff1f2", bgEnd: "#fecdd3", accent: "#be123c" },
+  神佛系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412" },
+  山林系列: { emoji: "🌿", bgStart: "#ecfccb", bgEnd: "#bbf7d0", accent: "#166534" },
 };
 
-function createGeneratedCards() {
-  const generated: CardAsset[] = [];
-  let index = 1;
+const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
+  {
+    card_id: "C0001",
+    card_title: "晨光平安・花開暖暖",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1468327768560-75b778cbb551?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "問安語",
+    style_sub: "溫柔晨光",
+    tone: "溫和",
+    imagery: "花系列",
+    text_density: "short",
+    energy_level: "steady",
+    caption_text: "願你今天平安順心，心情輕鬆。",
+    default_prompt: "看著這張花開的圖，寫一句今天想對自己說的話。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+  {
+    card_id: "C0002",
+    card_title: "慢慢也很好・山林清氣",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "勵志語",
+    style_sub: "舒心散步",
+    tone: "明亮",
+    imagery: "山林系列",
+    text_density: "medium",
+    energy_level: "uplift",
+    caption_text: "放慢腳步，今天也能有好心情。",
+    default_prompt: "看著這片山林，寫一句今天最想記下的心情。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+  {
+    card_id: "C0003",
+    card_title: "佛光護佑・安心靜心",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "神佛金句",
+    style_sub: "靜心平安",
+    tone: "平靜",
+    imagery: "神佛系列",
+    text_density: "short",
+    energy_level: "calm",
+    caption_text: "願你平安健康，福慧常伴左右。",
+    default_prompt: "看著這張安靜的圖，寫一句今天想留下的祝福。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+  {
+    card_id: "C0004",
+    card_title: "早安・花開暖暖",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "問安語",
+    style_sub: "柔和問候",
+    tone: "溫和",
+    imagery: "花系列",
+    text_density: "short",
+    energy_level: "steady",
+    caption_text: "送上一句問安，願你今天舒服自在。",
+    default_prompt: "這張圖讓你想到什麼？寫一句今天的問候。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+  {
+    card_id: "C0005",
+    card_title: "日日都有光・山林清氣",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "勵志語",
+    style_sub: "向光而行",
+    tone: "明亮",
+    imagery: "山林系列",
+    text_density: "medium",
+    energy_level: "uplift",
+    caption_text: "願你心裡有光，日子一天比一天安穩。",
+    default_prompt: "看著這張有光的圖，寫一句今天想鼓勵自己的話。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+  {
+    card_id: "C0006",
+    card_title: "心安得福・安心靜心",
+    image_provider: "external",
+    image_url: "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1200&q=80",
+    image_key: "",
+    style_main: "神佛金句",
+    style_sub: "安心祝福",
+    tone: "平靜",
+    imagery: "神佛系列",
+    text_density: "short",
+    energy_level: "calm",
+    caption_text: "心安就是福，願福氣常在。",
+    default_prompt: "看著這張平靜的圖，寫一句今天想守住的心情。",
+    status: "active",
+    uploaded_by: "system-seed",
+  },
+];
 
-  for (const textType of textTypes) {
-    const textConfig = textTypeConfigs[textType];
-    for (const visualSeries of visualSeriesOptions) {
-      const visualConfig = visualSeriesConfigs[visualSeries];
-      for (let variant = 0; variant < 3; variant += 1) {
-        const id = `C${String(index).padStart(4, "0")}`;
-        generated.push({
-          id,
-          title: `${textConfig.titles[variant]}・${visualConfig.label}`,
-          textType,
-          visualSeries,
-          tone: textConfig.tone,
-          caption: textConfig.captions[variant],
-          prompt: textConfig.prompt,
-          status: "active",
-          cc0Source: "Jenny generated card",
-          imageUrl: `/api/m01/cards/${id}/image`,
-          fontSize: textConfig.fontSize,
-          textDensity: textConfig.textDensity,
-          colorTone: textConfig.colorTone,
-          religiousContent: textConfig.religiousContent,
-          emoji: visualConfig.emoji,
-          bgStart: visualConfig.bgStart,
-          bgEnd: visualConfig.bgEnd,
-          accent: visualConfig.accent,
-        });
-        index += 1;
-      }
-    }
-  }
-
-  return generated;
-}
-
-export const cards: CardAsset[] = createGeneratedCards();
-
-function resolveSupabaseRestUrl() {
-  const url = process.env.SUPABASE_URL;
-  if (!url) return null;
-  if (url.includes("/rest/v1")) {
-    return url.replace(/\/+$/, "");
-  }
-  return `${url.replace(/\/+$/, "")}/rest/v1`;
-}
-
-function supabaseHeaders() {
-  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!apiKey) return null;
+function normalizeRow(row: CardCatalogRow): CardCatalogRow {
   return {
-    apikey: apiKey,
-    Authorization: `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
+    ...row,
+    card_id: row.card_id || row.id || "",
+    card_title: row.card_title || row.title || "",
+    image_provider: row.image_provider || "external",
+    image_url: row.image_url || "",
+    image_key: row.image_key || "",
+    style_main: row.style_main || row.text_type || "問安語",
+    style_sub: row.style_sub || "",
+    tone: row.tone || "溫和",
+    imagery: row.imagery || row.visual_series || "花系列",
+    text_density: row.text_density || "short",
+    energy_level: row.energy_level || "steady",
+    caption_text: row.caption_text || row.caption || "",
+    default_prompt: row.default_prompt || row.prompt || "",
+    status: row.status || "draft",
+    uploaded_by: row.uploaded_by || "system",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    id: row.id || row.card_id || "",
+    title: row.title || row.card_title || "",
+    text_type: row.text_type || row.style_main || "問安語",
+    visual_series: row.visual_series || row.imagery || "花系列",
+    caption: row.caption || row.caption_text || "",
+    prompt: row.prompt || row.default_prompt || "",
+    cc0_source: row.cc0_source || "",
+    font_size: row.font_size,
+    color_tone: row.color_tone,
+    religious_content: row.religious_content,
   };
 }
 
-function canUseSupabaseCards() {
-  return Boolean(resolveSupabaseRestUrl() && supabaseHeaders());
-}
+function mapCardRow(row: CardCatalogRow): CardAsset {
+  const normalized = normalizeRow(row);
+  const textConfig = textTypeConfigs[normalized.style_main];
+  const visualConfig = visualSeriesConfigs[normalized.imagery];
 
-function enrichCard(card: Omit<CardAsset, "emoji" | "bgStart" | "bgEnd" | "accent">) {
-  const visualConfig = visualSeriesConfigs[card.visualSeries];
   return {
-    ...card,
+    id: normalized.card_id,
+    cardId: normalized.card_id,
+    title: normalized.card_title,
+    cardTitle: normalized.card_title,
+    imageProvider: normalized.image_provider || "external",
+    imageUrl: normalized.image_url,
+    imageKey: normalized.image_key || "",
+    styleMain: normalized.style_main,
+    styleSub: normalized.style_sub,
+    tone: normalized.tone,
+    imagery: normalized.imagery,
+    textDensity: normalized.text_density,
+    energyLevel: normalized.energy_level,
+    caption: normalized.caption_text,
+    captionText: normalized.caption_text,
+    prompt: normalized.default_prompt || normalized.prompt || "",
+    defaultPrompt: normalized.default_prompt || normalized.prompt || "",
+    status: normalized.status,
+    uploadedBy: normalized.uploaded_by || "system",
+    createdAt: normalized.created_at || "",
+    updatedAt: normalized.updated_at || "",
+
+    textType: normalized.style_main,
+    visualSeries: normalized.imagery,
+    cc0Source: normalized.cc0_source || "",
+    fontSize: normalized.font_size || textConfig.fontSize,
+    colorTone: normalized.color_tone || textConfig.colorTone,
+    religiousContent: normalized.religious_content || textConfig.religiousContent,
     emoji: visualConfig.emoji,
     bgStart: visualConfig.bgStart,
     bgEnd: visualConfig.bgEnd,
     accent: visualConfig.accent,
-  } satisfies CardAsset;
+  };
 }
 
-function mapCardRow(row: CardRow): CardAsset {
-  return enrichCard({
-    id: row.id,
-    title: row.title,
-    textType: row.text_type,
-    visualSeries: row.visual_series,
-    tone: row.tone,
-    caption: row.caption,
-    prompt: row.prompt,
-    status: row.status,
-    cc0Source: row.cc0_source,
-    imageUrl: row.image_url,
-    fontSize: row.font_size,
-    textDensity: row.text_density,
-    colorTone: row.color_tone,
-    religiousContent: row.religious_content,
+function toRow(input: CardCatalogUpsertInput, existing?: CardCatalogRow): CardCatalogRow {
+  const now = new Date().toISOString();
+  const cardId = input.cardId || existing?.card_id || "";
+  return normalizeRow({
+    card_id: cardId,
+    card_title: input.cardTitle,
+    image_provider: input.imageProvider || existing?.image_provider || "external",
+    image_url: input.imageUrl,
+    image_key: input.imageKey || existing?.image_key || "",
+    style_main: input.styleMain,
+    style_sub: input.styleSub,
+    tone: input.tone,
+    imagery: input.imagery,
+    text_density: input.textDensity,
+    energy_level: input.energyLevel,
+    caption_text: input.captionText,
+    default_prompt: input.defaultPrompt,
+    status: input.status,
+    uploaded_by: input.uploadedBy || existing?.uploaded_by || "admin",
+    created_at: existing?.created_at || now,
+    updated_at: now,
   });
 }
 
 async function supabaseReadCards() {
+  return supabaseSelect<CardCatalogRow>(CARD_TABLE, "select=*&order=card_id.asc");
+}
+
+async function supportsExtendedCardCatalogColumns() {
+  if (extendedColumnsSupport !== null) {
+    return extendedColumnsSupport;
+  }
+
   const baseUrl = resolveSupabaseRestUrl();
   const headers = supabaseHeaders();
   if (!baseUrl || !headers) {
-    throw new Error("Supabase env is not configured");
+    extendedColumnsSupport = false;
+    return extendedColumnsSupport;
   }
 
-  const response = await fetch(`${baseUrl}/${CARD_TABLE}?select=*&order=id.asc`, {
+  const response = await fetch(`${baseUrl}/${CARD_TABLE}?select=image_provider&limit=1`, {
     method: "GET",
     headers,
     cache: "no-store",
   });
+  extendedColumnsSupport = response.ok;
+  return extendedColumnsSupport;
+}
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Supabase card read failed for ${CARD_TABLE}: ${response.status} ${text}`);
-  }
+async function localReadCards() {
+  return readLocalTable<CardCatalogRow>(CARD_TABLE);
+}
 
-  const rows = (await response.json()) as CardRow[];
-  return rows.map(mapCardRow);
+async function writeLocalCards(rows: CardCatalogRow[]) {
+  await writeLocalTable(CARD_TABLE, rows);
 }
 
 export async function listCards() {
-  if (canUseSupabaseCards()) {
-    try {
-      const liveCards = await supabaseReadCards();
-      if (liveCards.length > 0) {
-        return liveCards;
-      }
-    } catch {
-      // Fallback to generated cards until the formal Supabase card_catalog is provisioned.
+  if (canUseSupabase() && (await hasTable(CARD_TABLE))) {
+    const liveRows = await supabaseReadCards();
+    if (liveRows.length > 0) {
+      return liveRows.map(mapCardRow);
     }
   }
-  return cards;
+
+  const localRows = await localReadCards();
+  if (localRows.length > 0) {
+    return localRows.map(mapCardRow);
+  }
+
+  return EXTERNAL_SEED_CARDS.map(mapCardRow);
+}
+
+export async function listCardsForAdmin(filters?: {
+  styleMain?: string;
+  tone?: string;
+  status?: string;
+}) {
+  const cards = await listCards();
+  return cards.filter((card) => {
+    if (filters?.styleMain && card.styleMain !== filters.styleMain) return false;
+    if (filters?.tone && card.tone !== filters.tone) return false;
+    if (filters?.status && card.status !== filters.status) return false;
+    return true;
+  });
 }
 
 export async function getActiveCards() {
   const allCards = await listCards();
-  return allCards.filter((card) => card.status === "active");
+  return allCards.filter((card) => card.status === "active" && Boolean(card.imageUrl));
 }
 
 export async function getCardById(cardId: string) {
   const allCards = await listCards();
   return allCards.find((card) => card.id === cardId);
+}
+
+export async function getCardCatalogRowById(cardId: string) {
+  const cards = await listCards();
+  const found = cards.find((card) => card.cardId === cardId);
+  if (!found) return null;
+  return normalizeRow({
+    card_id: found.cardId,
+    card_title: found.cardTitle,
+    image_provider: found.imageProvider,
+    image_url: found.imageUrl,
+    image_key: found.imageKey,
+    style_main: found.styleMain,
+    style_sub: found.styleSub,
+    tone: found.tone,
+    imagery: found.imagery,
+    text_density: found.textDensity,
+    energy_level: found.energyLevel,
+    caption_text: found.captionText,
+    default_prompt: found.defaultPrompt,
+    status: found.status,
+    uploaded_by: found.uploadedBy,
+    created_at: found.createdAt,
+    updated_at: found.updatedAt,
+  });
+}
+
+export async function generateNextCardId() {
+  const cards = await listCards();
+  const max = cards.reduce((current, card) => {
+    const numeric = Number(card.cardId.replace(/^C/u, ""));
+    return Number.isFinite(numeric) ? Math.max(current, numeric) : current;
+  }, 0);
+  return `C${String(max + 1).padStart(4, "0")}`;
+}
+
+export async function upsertCardCatalog(input: CardCatalogUpsertInput) {
+  const cardId = input.cardId || (await generateNextCardId());
+  const existing = await getCardCatalogRowById(cardId);
+  const row = toRow({ ...input, cardId }, existing ?? undefined);
+
+  if (canUseSupabase() && (await hasTable(CARD_TABLE))) {
+    const payload = (await supportsExtendedCardCatalogColumns())
+      ? row
+      : {
+          card_id: row.card_id,
+          card_title: row.card_title,
+          style_main: row.style_main,
+          style_sub: row.style_sub,
+          tone: row.tone,
+          imagery: row.imagery,
+          text_density: row.text_density,
+          energy_level: row.energy_level,
+          caption_text: row.caption_text,
+          status: row.status,
+          id: row.card_id,
+          title: row.card_title,
+          text_type: row.style_main,
+          visual_series: row.imagery,
+          caption: row.caption_text,
+          prompt: row.default_prompt,
+          cc0_source: "",
+          image_url: row.image_url,
+          font_size: row.style_main === "勵志語" ? "medium" : "large",
+          color_tone: row.tone === "明亮" ? "bright" : "calm",
+          religious_content: row.style_main === "神佛金句" ? "high" : "none",
+        };
+    const saved = await supabaseInsert(CARD_TABLE, [payload], true);
+    if (!saved) {
+      throw new Error("Unable to upsert card_catalog row in Supabase.");
+    }
+  } else {
+    const existingRows = await localReadCards();
+    const index = existingRows.findIndex((item) => normalizeRow(item).card_id === cardId);
+    const nextRows = [...existingRows];
+    if (index >= 0) {
+      nextRows[index] = row;
+    } else {
+      nextRows.push(row);
+    }
+    await writeLocalCards(nextRows);
+  }
+
+  return mapCardRow(row);
+}
+
+export async function setCardCatalogStatus(cardId: string, status: CardStatus) {
+  const existing = await getCardCatalogRowById(cardId);
+  if (!existing) {
+    throw new Error(`Card ${cardId} not found.`);
+  }
+
+  return upsertCardCatalog({
+    cardId,
+    cardTitle: existing.card_title,
+    imageProvider: existing.image_provider,
+    imageUrl: existing.image_url,
+    imageKey: existing.image_key,
+    styleMain: existing.style_main,
+    styleSub: existing.style_sub,
+    tone: existing.tone,
+    imagery: existing.imagery,
+    textDensity: existing.text_density,
+    energyLevel: existing.energy_level,
+    captionText: existing.caption_text,
+    defaultPrompt: existing.default_prompt || "",
+    status,
+    uploadedBy: existing.uploaded_by,
+  });
+}
+
+export async function getCardFilterOptions() {
+  const cards = await listCards();
+  return {
+    styleMain: [...new Set(cards.map((card) => card.styleMain))].sort(),
+    tone: [...new Set(cards.map((card) => card.tone))].sort(),
+    status: [...new Set(cards.map((card) => card.status))].sort(),
+  };
 }
 
 export async function recommendCards(options: {

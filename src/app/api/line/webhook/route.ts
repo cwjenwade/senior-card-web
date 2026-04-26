@@ -124,17 +124,6 @@ function createM03SessionId(userId: string) {
   return `m03-${userId}-${Date.now()}`;
 }
 
-function getBaseUrl(request: NextRequest) {
-  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/+$/, "");
-  const proto = request.headers.get("x-forwarded-proto");
-  const host = request.headers.get("x-forwarded-host");
-  return proto && host ? `${proto}://${host}` : request.nextUrl.origin;
-}
-
-function buildCardImageUrl(baseUrl: string, cardId: string) {
-  return `${baseUrl}/api/m01/cards/${encodeURIComponent(cardId)}/image`;
-}
-
 function extractDiaryContent(rawText: string) {
   return rawText.replace(/^日記[:：]\s*/u, "").trim();
 }
@@ -153,7 +142,7 @@ function buildFourButtonQuickReply(items: Array<{ label: string; data: string; d
   };
 }
 
-function buildM01Carousel(baseUrl: string, sessionId: string, cards: CardAsset[]) {
+function buildM01Carousel(sessionId: string, cards: CardAsset[]) {
   return {
     type: "flex",
     altText: "今日長輩圖",
@@ -163,7 +152,7 @@ function buildM01Carousel(baseUrl: string, sessionId: string, cards: CardAsset[]
         type: "bubble",
         hero: {
           type: "image",
-          url: buildCardImageUrl(baseUrl, card.id),
+          url: card.imageUrl,
           size: "full",
           aspectRatio: "4:5",
           aspectMode: "cover",
@@ -200,7 +189,7 @@ function buildM01Carousel(baseUrl: string, sessionId: string, cards: CardAsset[]
   };
 }
 
-function buildM03LikeCarousel(baseUrl: string, sessionId: string, cards: CardAsset[]) {
+function buildM03LikeCarousel(sessionId: string, cards: CardAsset[]) {
   return {
     type: "flex",
     altText: "選三張喜歡的圖",
@@ -210,7 +199,7 @@ function buildM03LikeCarousel(baseUrl: string, sessionId: string, cards: CardAss
         type: "bubble",
         hero: {
           type: "image",
-          url: buildCardImageUrl(baseUrl, card.id),
+          url: card.imageUrl,
           size: "full",
           aspectRatio: "4:5",
           aspectMode: "cover",
@@ -284,7 +273,7 @@ async function buildTodayRecommendations(lineUserId: string, date: string, force
       .filter(Boolean) as CardAsset[];
   }
 
-  const cards = (await listCards()).filter((card) => card.status === "active");
+  const cards = (await listCards()).filter((card) => card.status === "active" && Boolean(card.imageUrl));
   const preference = await getCardPreference(lineUserId);
   const recentShown = new Set(await getRecentShownCardIds(lineUserId));
   const scored = cards
@@ -418,7 +407,7 @@ async function handleM01Start(request: NextRequest, replyToken: string, lineUser
 
   await replyToLine(replyToken, [
     { type: "text", text: "這是今天為你準備的三張長輩圖，選一張做今天的主圖吧。" },
-    buildM01Carousel(getBaseUrl(request), sessionId, cards),
+    buildM01Carousel(sessionId, cards),
     {
       type: "text",
       text: "若今天想看另一組，可以換一次推薦。",
@@ -428,6 +417,7 @@ async function handleM01Start(request: NextRequest, replyToken: string, lineUser
       ]),
     },
   ]);
+  void request;
 }
 
 async function handleM01Select(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
@@ -482,8 +472,8 @@ async function handleM01Select(request: NextRequest, replyToken: string, lineUse
   await replyToLine(replyToken, [
     {
       type: "image",
-      originalContentUrl: buildCardImageUrl(getBaseUrl(request), card.id),
-      previewImageUrl: buildCardImageUrl(getBaseUrl(request), card.id),
+      originalContentUrl: card.imageUrl,
+      previewImageUrl: card.imageUrl,
     },
     {
       type: "text",
@@ -493,6 +483,7 @@ async function handleM01Select(request: NextRequest, replyToken: string, lineUse
       ]),
     },
   ]);
+  void request;
 }
 
 async function handleM02Start(replyToken: string, lineUserId: string) {
@@ -651,11 +642,12 @@ async function handleM03NameInput(request: NextRequest, replyToken: string, line
     step: "waiting_for_cards",
     display_name: text.trim(),
   });
-  const cards = (await listCards()).filter((card) => card.status === "active").slice(0, 6);
+  const cards = (await listCards()).filter((card) => card.status === "active" && Boolean(card.imageUrl)).slice(0, 6);
   await replyToLine(replyToken, [
     { type: "text", text: "接下來請選三張你喜歡的圖，幫我知道你偏好的風格。" },
-    buildM03LikeCarousel(getBaseUrl(request), nextSession.session_id, cards),
+    buildM03LikeCarousel(nextSession.session_id, cards),
   ]);
+  void request;
 }
 
 async function handleM03LikeCard(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
@@ -673,10 +665,10 @@ async function handleM03LikeCard(request: NextRequest, replyToken: string, lineU
   });
 
   if (nextLiked.length < 3) {
-    const cards = (await listCards()).filter((card) => card.status === "active").slice(0, 6);
+    const cards = (await listCards()).filter((card) => card.status === "active" && Boolean(card.imageUrl)).slice(0, 6);
     await replyToLine(replyToken, [
       { type: "text", text: `已選 ${nextLiked.length} / 3 張，再選 ${3 - nextLiked.length} 張就完成。` },
-      buildM03LikeCarousel(getBaseUrl(request), nextSession.session_id, cards),
+      buildM03LikeCarousel(nextSession.session_id, cards),
     ]);
     return;
   }

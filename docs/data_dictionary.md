@@ -9,7 +9,7 @@ This document records the target product tables for M01 to M04 and the current m
 | Target table | Purpose | Current source before full migration |
 | --- | --- | --- |
 | `participants` | M03 lightweight participant profile | new product table or local fallback |
-| `card_catalog` | M01 card library | generated cards or Supabase `card_catalog` |
+| `card_catalog` | M01 card metadata library with external `image_url` | Supabase `card_catalog` or local metadata fallback |
 | `card_preferences` | style preference summary from M03 | new product table or local fallback |
 | `card_interactions` | M01/M02 product-level card actions | new product table or local fallback |
 | `daily_card_recommendations` | today's 3-card recommendation snapshot | new product table or local fallback |
@@ -66,6 +66,9 @@ Minimum product columns:
 
 - `card_id`
 - `card_title`
+- `image_provider`
+- `image_url`
+- `image_key`
 - `style_main`
 - `style_sub`
 - `tone`
@@ -73,7 +76,11 @@ Minimum product columns:
 - `text_density`
 - `energy_level`
 - `caption_text`
+- `default_prompt`
 - `status`
+- `uploaded_by`
+- `created_at`
+- `updated_at`
 
 Compatibility columns kept for current runtime:
 
@@ -84,7 +91,6 @@ Compatibility columns kept for current runtime:
 - `caption`
 - `prompt`
 - `cc0_source`
-- `image_url`
 - `font_size`
 - `color_tone`
 - `religious_content`
@@ -93,10 +99,14 @@ Mapping:
 
 - `card_id` = `id`
 - `card_title` = `title`
+- `image_provider` = external asset source label
+- `image_url` = actual display URL used by M01 / M03
+- `image_key` = reserved for future managed providers
 - `style_main` = `text_type`
-- `style_sub` = `tone`
+- `style_sub` = lightweight sub-style label
 - `imagery` = `visual_series`
 - `caption_text` = `caption`
+- `default_prompt` = `prompt`
 
 ## `card_preferences`
 
