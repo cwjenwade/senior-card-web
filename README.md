@@ -79,6 +79,8 @@ M01 only does:
 - visual series selection
 - recommending three cards
 - selecting / disliking / refreshing cards
+- returning one finished greeting-card image after selection
+- allowing one completed M01 card per day
 
 M01 does not:
 
@@ -102,7 +104,6 @@ M01 postback actions:
 - `module=m01&action=set_text_type&text_type=...`
 - `module=m01&action=set_visual_series&visual_series=...`
 - `module=m01&action=select&card_id=...`
-- `module=m01&action=dislike&card_id=...`
 - `module=m01&action=refresh`
 
 ## M02

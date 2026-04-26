@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { listCards, recommendCards, textTypes, visualSeriesOptions, type TextType, type VisualSeries } from "@/lib/m01-cards";
-import { getDislikedCardIds, getRecentShownCardIds, getSession, recordCardFeedback, updateSession } from "@/lib/m01-session-store";
+import { getRecentShownCardIds, getSession, hasCompletedM01Today, markM01Completed, recordCardFeedback, updateSession } from "@/lib/m01-session-store";
 import {
   countCjkCharacters,
   createDiaryEntry,
@@ -39,6 +39,7 @@ type LineEvent =
 type M01Payload = {
   module: string;
   action: string;
+  sessionId: string;
   mood: string;
   textType: string;
   visualSeries: string;
@@ -47,12 +48,14 @@ type M01Payload = {
 
 const M01_TEXT_TRIGGERS = new Set(["製作長輩圖", "長輩圖", "今日長輩圖", "m01"]);
 const M02_TEXT_TRIGGERS = new Set(["寫日記換雞蛋", "寫日記", "今日日記", "m02"]);
+const M01_MOODS = ["開心", "平靜", "累", "煩", "寂寞", "沮喪", "沒特別感覺"] as const;
 
 function parsePostback(data: string) {
   const params = new URLSearchParams(data);
   return {
     module: params.get("module") ?? "",
     action: params.get("action") ?? "",
+    sessionId: params.get("session_id") ?? "",
     mood: params.get("mood") ?? "",
     textType: params.get("text_type") ?? "",
     visualSeries: params.get("visual_series") ?? "",
@@ -109,51 +112,151 @@ function createM02SessionId(userId: string) {
   return `m02-${userId}-${Date.now()}`;
 }
 
-function moodQuickReply() {
-  const moods = ["開心", "平靜", "累", "煩", "寂寞", "沮喪", "沒特別感覺"];
+function getBaseUrl(request: NextRequest) {
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/+$/, "");
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  return request.nextUrl.origin;
+}
+
+function buildCardImageUrl(baseUrl: string, cardId: string) {
+  return `${baseUrl}/api/m01/cards/${encodeURIComponent(cardId)}/image`;
+}
+
+function getM01Stage(session: Awaited<ReturnType<typeof getSession>>) {
+  if (!session) return "idle" as const;
+  if (!session.mood_today) return "waiting_for_mood" as const;
+  if (!session.text_type_preference) return "waiting_for_text_type" as const;
+  if (!session.visual_series_preference) return "waiting_for_visual_series" as const;
+  return "ready" as const;
+}
+
+function deriveM01PayloadFromText(text: string, session: Awaited<ReturnType<typeof getSession>>) {
+  if (!session) return null;
+  const stage = getM01Stage(session);
+
+  if (stage === "waiting_for_mood" && M01_MOODS.includes(text as (typeof M01_MOODS)[number])) {
+    return {
+      module: "m01",
+      action: "set_mood",
+      sessionId: session.session_id,
+      mood: text,
+      textType: "",
+      visualSeries: "",
+      cardId: "",
+    } satisfies M01Payload;
+  }
+
+  if (stage === "waiting_for_text_type" && textTypes.includes(text as TextType)) {
+    return {
+      module: "m01",
+      action: "set_text_type",
+      sessionId: session.session_id,
+      mood: session.mood_today,
+      textType: text,
+      visualSeries: "",
+      cardId: "",
+    } satisfies M01Payload;
+  }
+
+  if (stage === "waiting_for_visual_series" && visualSeriesOptions.includes(text as VisualSeries)) {
+    return {
+      module: "m01",
+      action: "set_visual_series",
+      sessionId: session.session_id,
+      mood: session.mood_today,
+      textType: session.text_type_preference,
+      visualSeries: text,
+      cardId: "",
+    } satisfies M01Payload;
+  }
+
+  return null;
+}
+
+function buildLargeOptionCarousel(title: string, options: Array<{ label: string; data: string; displayText: string }>) {
+  const chunks: Array<typeof options> = [];
+  for (let i = 0; i < options.length; i += 3) {
+    chunks.push(options.slice(i, i + 3));
+  }
+
   return {
-    items: moods.map((mood) => ({
-      type: "action",
-      action: {
-        type: "postback",
-        label: mood,
-        data: `module=m01&action=set_mood&mood=${encodeURIComponent(mood)}`,
-        displayText: mood,
-      },
-    })),
+    type: "flex",
+    altText: title,
+    contents: {
+      type: "carousel",
+      contents: chunks.map((chunk) => ({
+        type: "bubble",
+        size: "mega",
+        body: {
+          type: "box",
+          layout: "vertical",
+          spacing: "lg",
+          contents: [
+            {
+              type: "text",
+              text: title,
+              weight: "bold",
+              size: "xxl",
+              wrap: true,
+            },
+            ...chunk.map((option) => ({
+              type: "button",
+              style: "primary",
+              height: "md",
+              action: {
+                type: "postback",
+                label: option.label,
+                data: option.data,
+                displayText: option.displayText,
+              },
+            })),
+          ],
+        },
+      })),
+    },
   };
 }
 
-function textTypeQuickReply() {
-  return {
-    items: textTypes.map((textType) => ({
-      type: "action",
-      action: {
-        type: "postback",
-        label: textType,
-        data: `module=m01&action=set_text_type&text_type=${encodeURIComponent(textType)}`,
-        displayText: textType,
-      },
+function moodSelectorMessage(sessionId: string) {
+  return buildLargeOptionCarousel(
+    "今天比較像哪一種心情？",
+    M01_MOODS.map((mood) => ({
+      label: mood,
+      data: `module=m01&action=set_mood&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}`,
+      displayText: mood,
     })),
-  };
+  );
 }
 
-function visualSeriesQuickReply() {
-  return {
-    items: visualSeriesOptions.map((visualSeries) => ({
-      type: "action",
-      action: {
-        type: "postback",
-        label: visualSeries,
-        data: `module=m01&action=set_visual_series&visual_series=${encodeURIComponent(visualSeries)}`,
-        displayText: visualSeries,
-      },
+function textTypeSelectorMessage(sessionId: string, mood: string) {
+  return buildLargeOptionCarousel(
+    "今天想看哪一種話？",
+    textTypes.map((textType) => ({
+      label: textType,
+      data: `module=m01&action=set_text_type&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}`,
+      displayText: textType,
     })),
-  };
+  );
+}
+
+function visualSeriesSelectorMessage(sessionId: string, mood: string, textType: string) {
+  return buildLargeOptionCarousel(
+    "今天想看哪一種圖？",
+    visualSeriesOptions.map((visualSeries) => ({
+      label: visualSeries,
+      data: `module=m01&action=set_visual_series&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}&visual_series=${encodeURIComponent(visualSeries)}`,
+      displayText: visualSeries,
+    })),
+  );
 }
 
 async function buildM01Recommendations(lineUserId: string, payload: M01Payload) {
-  const excludeCardIds = [...new Set([...getRecentShownCardIds(lineUserId), ...getDislikedCardIds(lineUserId)])];
+  const recentShown = await getRecentShownCardIds(lineUserId);
+  const excludeCardIds = [...new Set([...recentShown])];
   const picks = await recommendCards({
     textType: payload.textType as TextType,
     visualSeries: payload.visualSeries as VisualSeries,
@@ -183,7 +286,16 @@ async function buildM01Recommendations(lineUserId: string, payload: M01Payload) 
   return selected.slice(0, 3);
 }
 
-function buildM01Carousel(cards: Awaited<ReturnType<typeof buildM01Recommendations>>) {
+function buildM01Carousel(
+  baseUrl: string,
+  state: {
+    sessionId: string;
+    mood: string;
+    textType: string;
+    visualSeries: string;
+  },
+  cards: Awaited<ReturnType<typeof buildM01Recommendations>>,
+) {
   return {
     type: "flex",
     altText: "長輩圖推薦",
@@ -193,7 +305,7 @@ function buildM01Carousel(cards: Awaited<ReturnType<typeof buildM01Recommendatio
         type: "bubble",
         hero: {
           type: "image",
-          url: card.imageUrl,
+          url: buildCardImageUrl(baseUrl, card.id),
           size: "full",
           aspectRatio: "4:5",
           aspectMode: "cover",
@@ -207,21 +319,28 @@ function buildM01Carousel(cards: Awaited<ReturnType<typeof buildM01Recommendatio
               type: "text",
               text: card.title,
               weight: "bold",
-              size: "lg",
+              size: "xl",
               wrap: true,
             },
             {
               type: "text",
               text: card.textType,
-              size: "sm",
+              size: "lg",
               color: "#475569",
               wrap: true,
             },
             {
               type: "text",
               text: card.visualSeries,
-              size: "sm",
+              size: "lg",
               color: "#475569",
+              wrap: true,
+            },
+            {
+              type: "text",
+              text: card.caption,
+              size: "md",
+              color: "#334155",
               wrap: true,
             },
           ],
@@ -234,23 +353,12 @@ function buildM01Carousel(cards: Awaited<ReturnType<typeof buildM01Recommendatio
             {
               type: "button",
               style: "primary",
-              height: "sm",
+              height: "md",
               action: {
                 type: "postback",
                 label: "選這張",
-                data: `module=m01&action=select&card_id=${encodeURIComponent(card.id)}`,
+                data: `module=m01&action=select&session_id=${encodeURIComponent(state.sessionId)}&mood=${encodeURIComponent(state.mood)}&text_type=${encodeURIComponent(state.textType)}&visual_series=${encodeURIComponent(state.visualSeries)}&card_id=${encodeURIComponent(card.id)}`,
                 displayText: `選這張 ${card.title}`,
-              },
-            },
-            {
-              type: "button",
-              style: "secondary",
-              height: "sm",
-              action: {
-                type: "postback",
-                label: "不喜歡這張",
-                data: `module=m01&action=dislike&card_id=${encodeURIComponent(card.id)}`,
-                displayText: `不喜歡 ${card.title}`,
               },
             },
           ],
@@ -260,7 +368,7 @@ function buildM01Carousel(cards: Awaited<ReturnType<typeof buildM01Recommendatio
   };
 }
 
-function refreshQuickReply() {
+function refreshQuickReply(sessionId: string, mood: string, textType: string, visualSeries: string) {
   return {
     items: [
       {
@@ -268,7 +376,7 @@ function refreshQuickReply() {
         action: {
           type: "postback",
           label: "換一組",
-          data: "module=m01&action=refresh",
+          data: `module=m01&action=refresh&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}&visual_series=${encodeURIComponent(visualSeries)}`,
           displayText: "換一組",
         },
       },
@@ -284,7 +392,18 @@ function createM02StartMessage() {
 }
 
 async function handleM01Start(replyToken: string, lineUserId: string) {
-  updateSession(lineUserId, {
+  const today = getTodayInTaipei();
+  if (await hasCompletedM01Today(lineUserId, today)) {
+    await replyToLine(replyToken, [
+      {
+        type: "text",
+        text: "今天已經完成一張長輩圖，明天再來。",
+      },
+    ]);
+    return;
+  }
+
+  const nextSession = await updateSession(lineUserId, {
     session_id: createM01SessionId(lineUserId),
     mood_today: "",
     text_type_preference: "",
@@ -295,58 +414,80 @@ async function handleM01Start(replyToken: string, lineUserId: string) {
   });
 
   await replyToLine(replyToken, [
-    {
-      type: "text",
-      text: "今天比較像哪一種心情？",
-      quickReply: moodQuickReply(),
-    },
+    moodSelectorMessage(nextSession.session_id),
   ]);
 }
 
-async function handleM01Postback(replyToken: string, lineUserId: string, payload: M01Payload) {
-  const session = getSession(lineUserId) ?? updateSession(lineUserId, { session_id: createM01SessionId(lineUserId), created_at: new Date().toISOString() });
+async function handleM01Postback(request: NextRequest, replyToken: string, lineUserId: string, payload: M01Payload) {
+  const session =
+    (await getSession(lineUserId)) ??
+    (await updateSession(lineUserId, { session_id: payload.sessionId || createM01SessionId(lineUserId), created_at: new Date().toISOString() }));
+  const effectiveSessionId = payload.sessionId || session.session_id || createM01SessionId(lineUserId);
+  const today = getTodayInTaipei();
+
+  console.log("[m01] postback", {
+    lineUserId,
+    action: payload.action,
+    sessionId: effectiveSessionId,
+    mood: payload.mood,
+    textType: payload.textType,
+    visualSeries: payload.visualSeries,
+    cardId: payload.cardId,
+  });
 
   if (payload.action === "start") {
     await handleM01Start(replyToken, lineUserId);
     return;
   }
 
+  if (await hasCompletedM01Today(lineUserId, today)) {
+    await replyToLine(replyToken, [
+      {
+        type: "text",
+        text: "今天已經完成一張長輩圖，明天再來。",
+      },
+    ]);
+    return;
+  }
+
   if (payload.action === "set_mood") {
-    updateSession(lineUserId, {
+    const nextSession = await updateSession(lineUserId, {
+      session_id: effectiveSessionId,
       mood_today: payload.mood,
       selected_card_id: "",
     });
     await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天想看哪一種話？",
-        quickReply: textTypeQuickReply(),
-      },
+      textTypeSelectorMessage(nextSession.session_id, payload.mood),
     ]);
     return;
   }
 
   if (payload.action === "set_text_type") {
-    updateSession(lineUserId, {
-      mood_today: session.mood_today,
+    const nextSession = await updateSession(lineUserId, {
+      session_id: effectiveSessionId,
+      mood_today: payload.mood || session.mood_today,
       text_type_preference: payload.textType,
       selected_card_id: "",
     });
     await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天想看哪一種圖？",
-        quickReply: visualSeriesQuickReply(),
-      },
+      visualSeriesSelectorMessage(nextSession.session_id, payload.mood || nextSession.mood_today, payload.textType),
     ]);
     return;
   }
 
   if (payload.action === "set_visual_series" || payload.action === "refresh") {
-    const nextVisualSeries = payload.action === "refresh" ? session.visual_series_preference : payload.visualSeries;
-    const nextTextType = session.text_type_preference;
+    const nextVisualSeries = payload.visualSeries || session.visual_series_preference;
+    const nextTextType = payload.textType || session.text_type_preference;
+    const nextMood = payload.mood || session.mood_today;
 
     if (!nextTextType || !nextVisualSeries) {
+      console.error("[m01] missing selection state", {
+        lineUserId,
+        sessionId: effectiveSessionId,
+        action: payload.action,
+        payload,
+        session,
+      });
       await replyToLine(replyToken, [unknownMessage()]);
       return;
     }
@@ -355,14 +496,15 @@ async function handleM01Postback(replyToken: string, lineUserId: string, payload
       ...payload,
       module: "m01",
       action: payload.action,
-      mood: session.mood_today,
+      mood: nextMood,
       textType: nextTextType,
       visualSeries: nextVisualSeries,
       cardId: payload.cardId,
     });
 
-    updateSession(lineUserId, {
-      mood_today: session.mood_today,
+    await updateSession(lineUserId, {
+      session_id: effectiveSessionId,
+      mood_today: nextMood,
       text_type_preference: nextTextType,
       visual_series_preference: nextVisualSeries,
       recommended_card_ids: recommendations.map((card) => card.id),
@@ -370,72 +512,84 @@ async function handleM01Postback(replyToken: string, lineUserId: string, payload
     });
 
     if (payload.action === "refresh") {
-      recordCardFeedback({
+      await recordCardFeedback({
         line_user_id: lineUserId,
-        session_id: session.session_id,
+        session_id: effectiveSessionId,
         card_id: "",
         event_type: "refreshed",
         event_time: new Date().toISOString(),
+        mood_today: nextMood,
+        text_type_preference: nextTextType,
+        visual_series_preference: nextVisualSeries,
       });
     }
 
     for (const card of recommendations) {
-      recordCardFeedback({
+      await recordCardFeedback({
         line_user_id: lineUserId,
-        session_id: session.session_id,
+        session_id: effectiveSessionId,
         card_id: card.id,
         event_type: "shown",
         event_time: new Date().toISOString(),
+        mood_today: nextMood,
+        text_type_preference: nextTextType,
+        visual_series_preference: nextVisualSeries,
       });
     }
 
     await replyToLine(replyToken, [
       {
         type: "text",
-        text: "這是今天的三張長輩圖。",
+        text: `這是今天為你準備的三張長輩圖：${nextTextType} × ${nextVisualSeries}`,
       },
-      buildM01Carousel(recommendations),
+      buildM01Carousel(
+        getBaseUrl(request),
+        {
+          sessionId: effectiveSessionId,
+          mood: nextMood,
+          textType: nextTextType,
+          visualSeries: nextVisualSeries,
+        },
+        recommendations,
+      ),
       {
         type: "text",
         text: "你可以選這張，或換一組。",
-        quickReply: refreshQuickReply(),
+        quickReply: refreshQuickReply(effectiveSessionId, nextMood, nextTextType, nextVisualSeries),
       },
     ]);
     return;
   }
 
   if (payload.action === "select") {
-    updateSession(lineUserId, {
+    const card = (await listCards()).find((item) => item.id === payload.cardId);
+    await updateSession(lineUserId, {
+      session_id: effectiveSessionId,
       selected_card_id: payload.cardId,
+      completed_date: today,
     });
-    recordCardFeedback({
+    await recordCardFeedback({
       line_user_id: lineUserId,
-      session_id: session.session_id,
+      session_id: effectiveSessionId,
       card_id: payload.cardId,
       event_type: "selected",
       event_time: new Date().toISOString(),
+      mood_today: payload.mood,
+      text_type_preference: payload.textType,
+      visual_series_preference: payload.visualSeries,
     });
+    markM01Completed(lineUserId, today);
     await replyToLine(replyToken, [
       {
-        type: "text",
-        text: "已選好這張長輩圖。",
+        type: "image",
+        originalContentUrl: buildCardImageUrl(getBaseUrl(request), payload.cardId),
+        previewImageUrl: buildCardImageUrl(getBaseUrl(request), payload.cardId),
       },
-    ]);
-    return;
-  }
-
-  if (payload.action === "dislike") {
-    recordCardFeedback({
-      line_user_id: lineUserId,
-      session_id: session.session_id,
-      card_id: payload.cardId,
-      event_type: "disliked",
-      event_time: new Date().toISOString(),
-    });
-    await replyToLine(replyToken, [
       {
         type: "text",
-        text: "好，先記下這張你不喜歡。",
+        text: card
+          ? `長輩圖製作完成：${card.title}\n恭喜你選好今天的長輩圖，感謝你的使用。\n今天先到這裡，明天再來。`
+          : "長輩圖製作完成，感謝你的使用。\n今天先到這裡，明天再來。",
       },
     ]);
     return;
@@ -447,10 +601,10 @@ async function handleM01Postback(replyToken: string, lineUserId: string, payload
 async function handleM02Start(replyToken: string, lineUserId: string) {
   const today = getTodayInTaipei();
 
-  if (hasCompletedToday(lineUserId, today)) {
-    recordM02RewardEvent({
+  if (await hasCompletedToday(lineUserId, today)) {
+    await recordM02RewardEvent({
       line_user_id: lineUserId,
-      session_id: getM02Session(lineUserId)?.session_id ?? createM02SessionId(lineUserId),
+      session_id: (await getM02Session(lineUserId))?.session_id ?? createM02SessionId(lineUserId),
       event_type: "duplicate_blocked",
       event_time: new Date().toISOString(),
     });
@@ -463,13 +617,13 @@ async function handleM02Start(replyToken: string, lineUserId: string) {
     return;
   }
 
-  const nextSession = updateM02Session(lineUserId, {
+  const nextSession = await updateM02Session(lineUserId, {
     session_id: createM02SessionId(lineUserId),
     status: "waiting_for_diary",
     started_at: new Date().toISOString(),
   });
 
-  recordM02RewardEvent({
+  await recordM02RewardEvent({
     line_user_id: lineUserId,
     session_id: nextSession.session_id,
     event_type: "started",
@@ -480,7 +634,7 @@ async function handleM02Start(replyToken: string, lineUserId: string) {
 }
 
 async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawText: string) {
-  const session = getM02Session(lineUserId);
+  const session = await getM02Session(lineUserId);
 
   if (session?.status !== "waiting_for_diary") {
     await replyToLine(replyToken, [unknownMessage()]);
@@ -488,9 +642,9 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
   }
 
   const today = getTodayInTaipei();
-  if (hasCompletedToday(lineUserId, today) || getTodayEntry(lineUserId)) {
-    updateM02Session(lineUserId, { status: "completed" });
-    recordM02RewardEvent({
+  if ((await hasCompletedToday(lineUserId, today)) || (await getTodayEntry(lineUserId))) {
+    await updateM02Session(lineUserId, { status: "completed" });
+    await recordM02RewardEvent({
       line_user_id: lineUserId,
       session_id: session.session_id,
       event_type: "duplicate_blocked",
@@ -507,7 +661,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
 
   const content = rawText.replace(/^日記：/, "").trim();
   if (!content) {
-    recordM02RewardEvent({
+    await recordM02RewardEvent({
       line_user_id: lineUserId,
       session_id: session.session_id,
       event_type: "invalid_input",
@@ -525,7 +679,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
   const cjkLength = countCjkCharacters(content);
 
   if (cjkLength < 100) {
-    recordM02RewardEvent({
+    await recordM02RewardEvent({
       line_user_id: lineUserId,
       session_id: session.session_id,
       event_type: "too_short",
@@ -541,7 +695,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
   }
 
   if (cjkLength > 300) {
-    recordM02RewardEvent({
+    await recordM02RewardEvent({
       line_user_id: lineUserId,
       session_id: session.session_id,
       event_type: "too_long",
@@ -556,7 +710,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
     return;
   }
 
-  createDiaryEntry({
+  await createDiaryEntry({
     line_user_id: lineUserId,
     session_id: session.session_id,
     diary_text: content,
@@ -566,7 +720,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
     created_at: new Date().toISOString(),
   });
 
-  recordM02RewardEvent({
+  await recordM02RewardEvent({
     line_user_id: lineUserId,
     session_id: session.session_id,
     event_type: "diary_submitted",
@@ -574,9 +728,9 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
   });
 
   markM02Completed(lineUserId, today);
-  updateM02Session(lineUserId, { status: "completed" });
+  await updateM02Session(lineUserId, { status: "completed" });
 
-  recordM02RewardEvent({
+  await recordM02RewardEvent({
     line_user_id: lineUserId,
     session_id: session.session_id,
     event_type: "completed",
@@ -591,7 +745,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
   ]);
 }
 
-async function handleEvent(event: LineEvent) {
+async function handleEvent(request: NextRequest, event: LineEvent) {
   if (!("replyToken" in event) || !event.replyToken) return;
 
   const lineUserId = event.source?.userId ?? "anonymous_user";
@@ -610,7 +764,7 @@ async function handleEvent(event: LineEvent) {
     const payload = parsePostback(event.postback.data);
 
     if (payload.module === "m01") {
-      await handleM01Postback(event.replyToken, lineUserId, payload);
+      await handleM01Postback(request, event.replyToken, lineUserId, payload);
       return;
     }
 
@@ -637,15 +791,22 @@ async function handleEvent(event: LineEvent) {
       return;
     }
 
+    const m01Session = await getSession(lineUserId);
+    const derivedM01Payload = deriveM01PayloadFromText(text, m01Session);
+    if (derivedM01Payload) {
+      await handleM01Postback(request, event.replyToken, lineUserId, derivedM01Payload);
+      return;
+    }
+
     if (text.startsWith("日記：")) {
       await handleM02DiaryInput(event.replyToken, lineUserId, text);
       return;
     }
 
-    if (getM02Session(lineUserId)?.status === "waiting_for_diary") {
-      recordM02RewardEvent({
+    if ((await getM02Session(lineUserId))?.status === "waiting_for_diary") {
+      await recordM02RewardEvent({
         line_user_id: lineUserId,
-        session_id: getM02Session(lineUserId)?.session_id ?? createM02SessionId(lineUserId),
+        session_id: (await getM02Session(lineUserId))?.session_id ?? createM02SessionId(lineUserId),
         event_type: "invalid_input",
         event_time: new Date().toISOString(),
       });
@@ -700,7 +861,7 @@ export async function POST(req: NextRequest) {
 
   for (const event of body.events ?? []) {
     try {
-      await handleEvent(event);
+      await handleEvent(req, event);
     } catch (error) {
       console.error("LINE event handling failed", error);
     }

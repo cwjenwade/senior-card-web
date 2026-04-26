@@ -33,6 +33,10 @@ export type CardAsset = {
   textDensity: "short" | "medium";
   colorTone: "warm" | "calm" | "bright";
   religiousContent: "none" | "medium" | "high";
+  emoji: string;
+  bgStart: string;
+  bgEnd: string;
+  accent: string;
 };
 
 type CardRow = {
@@ -52,6 +56,8 @@ type CardRow = {
   religious_content: CardAsset["religiousContent"];
 };
 
+const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
+
 export const textTypes: TextType[] = ["祝福語", "問安語", "勵志語", "平安語", "健康語", "幽默語", "陪伴語"];
 
 export const visualSeriesOptions: VisualSeries[] = [
@@ -66,146 +72,151 @@ export const visualSeriesOptions: VisualSeries[] = [
   "書法字系列",
 ];
 
-export const cards: CardAsset[] = [
+const textTypeConfigs: Record<
+  TextType,
   {
-    id: "C001",
-    title: "晨光平安",
-    textType: "平安語",
-    visualSeries: "日出系列",
-    tone: "平靜",
-    caption: "今天也慢慢來，平平安安就很好。",
-    prompt: "看到這張圖，今天想寫一句什麼？",
-    status: "active",
-    cc0Source: "Unsplash / sunrise coast",
-    imageUrl:
-      "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "warm",
-    religiousContent: "none",
-  },
-  {
-    id: "C002",
-    title: "蘭花問安",
-    textType: "問安語",
-    visualSeries: "花系列",
+    tone: CardAsset["tone"];
+    fontSize: CardAsset["fontSize"];
+    textDensity: CardAsset["textDensity"];
+    colorTone: CardAsset["colorTone"];
+    religiousContent: CardAsset["religiousContent"];
+    titles: string[];
+    captions: string[];
+    prompt: string;
+  }
+> = {
+  祝福語: {
     tone: "溫和",
-    caption: "今天過得還好嗎？寫一句也可以。",
-    prompt: "今天心裡最想記下來的是什麼？",
-    status: "active",
-    cc0Source: "Unsplash / orchid macro",
-    imageUrl:
-      "https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=1200&q=80",
+    fontSize: "large",
+    textDensity: "short",
+    colorTone: "warm",
+    religiousContent: "none",
+    titles: ["平安就是福", "福氣跟著來", "事事都順心"],
+    captions: ["願你今天平安健康，事事順心。", "有我溫暖的祝福，願平安健康。", "心存感恩富足，福氣自然跟著來。"],
+    prompt: "選一張你今天喜歡的祝福圖。",
+  },
+  問安語: {
+    tone: "溫和",
     fontSize: "large",
     textDensity: "short",
     colorTone: "calm",
     religiousContent: "none",
+    titles: ["早安", "日安", "輕聲問好"],
+    captions: ["每日心轉念，福氣跟著來。", "歲月平靜好，平安是福。", "想跟你說聲早安，今天也要保重。"],
+    prompt: "選一張今天的問安圖。",
   },
-  {
-    id: "C003",
-    title: "慢慢也很好",
-    textType: "勵志語",
-    visualSeries: "山水系列",
+  勵志語: {
     tone: "明亮",
-    caption: "今天不用急，往前一點點就很好。",
-    prompt: "今天有哪件小事值得記下來？",
-    status: "active",
-    cc0Source: "Unsplash / mountain path",
-    imageUrl:
-      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
     fontSize: "medium",
     textDensity: "medium",
-    colorTone: "warm",
+    colorTone: "bright",
     religiousContent: "none",
+    titles: ["慢慢也很好", "日日都有光", "一步一步來"],
+    captions: ["簡單生活，知足常樂。", "放慢步調，願心情平靜順心。", "好事慢慢來，日子慢慢走。"],
+    prompt: "選一張今天的勵志圖。",
   },
-  {
-    id: "C004",
-    title: "你辛苦了",
-    textType: "陪伴語",
-    visualSeries: "茶水果系列",
+  平安語: {
+    tone: "平靜",
+    fontSize: "large",
+    textDensity: "short",
+    colorTone: "calm",
+    religiousContent: "none",
+    titles: ["平安", "心安", "歲月靜好"],
+    captions: ["願身體健康，事事順心。", "平安就是福，順心就是樂。", "願心情平靜，日日平安。"],
+    prompt: "選一張讓人安心的圖。",
+  },
+  健康語: {
+    tone: "平靜",
+    fontSize: "large",
+    textDensity: "short",
+    colorTone: "calm",
+    religiousContent: "none",
+    titles: ["保重身體", "健康最要緊", "今天也保重"],
+    captions: ["願身體健康，事事順心。", "平安就是福，健康最重要。", "好好休息，慢慢來就很好。"],
+    prompt: "選一張今天的健康圖。",
+  },
+  幽默語: {
+    tone: "明亮",
+    fontSize: "large",
+    textDensity: "short",
+    colorTone: "bright",
+    religiousContent: "none",
+    titles: ["笑一下", "今天輕鬆點", "可愛一下"],
+    captions: ["輕鬆過日子，開心最重要。", "今天先笑一下，福氣就來啦。", "可可愛愛，心情自然就放鬆。"],
+    prompt: "選一張今天想笑一下的圖。",
+  },
+  陪伴語: {
     tone: "陪伴",
-    caption: "今天先歇一下，也算在照顧自己。",
-    prompt: "如果跟自己說一句溫柔的話，會是什麼？",
-    status: "active",
-    cc0Source: "Unsplash / tea table",
-    imageUrl:
-      "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80",
     fontSize: "large",
     textDensity: "short",
-    colorTone: "calm",
-    religiousContent: "none",
-  },
-  {
-    id: "C005",
-    title: "祝福常在",
-    textType: "祝福語",
-    visualSeries: "書法字系列",
-    tone: "平靜",
-    caption: "願今天順心，心裡也有一點光。",
-    prompt: "今天有沒有想感謝或想念的人？",
-    status: "draft",
-    cc0Source: "Canva export / calligraphy background",
-    imageUrl:
-      "https://images.unsplash.com/photo-1516546453174-5e1098a4b4af?auto=format&fit=crop&w=1200&q=80",
-    fontSize: "medium",
-    textDensity: "medium",
     colorTone: "warm",
     religiousContent: "none",
+    titles: ["你辛苦了", "我陪你", "慢慢都會好"],
+    captions: ["凡事量力而行，寬心自在生活。", "先休息一下，有人陪你慢慢走。", "今天辛苦了，願你安心自在。"],
+    prompt: "選一張有陪伴感的圖。",
   },
-  {
-    id: "C006",
-    title: "平安心念",
-    textType: "平安語",
-    visualSeries: "神佛系列",
-    tone: "平靜",
-    caption: "願心安，身安，今天也平平順順。",
-    prompt: "今天心裡安不安？一句話也可以。",
-    status: "active",
-    cc0Source: "Unsplash / temple hall",
-    imageUrl:
-      "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?auto=format&fit=crop&w=1200&q=80",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "calm",
-    religiousContent: "high",
-  },
-  {
-    id: "C007",
-    title: "小狗來問安",
-    textType: "問安語",
-    visualSeries: "動物系列",
-    tone: "明亮",
-    caption: "今天有沒有吃飯喝水？寫一句就好。",
-    prompt: "今天想簡單記一句什麼？",
-    status: "active",
-    cc0Source: "Unsplash / puppy portrait",
-    imageUrl:
-      "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=1200&q=80",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "bright",
-    religiousContent: "none",
-  },
-  {
-    id: "C008",
-    title: "節日好心情",
-    textType: "祝福語",
-    visualSeries: "節慶系列",
-    tone: "明亮",
-    caption: "今天也值得有一點熱鬧和喜氣。",
-    prompt: "今天有沒有讓你想到團圓或熱鬧的事？",
-    status: "archived",
-    cc0Source: "CC0 festive paper pack",
-    imageUrl:
-      "https://images.unsplash.com/photo-1482517967863-00e15c9b44be?auto=format&fit=crop&w=1200&q=80",
-    fontSize: "medium",
-    textDensity: "medium",
-    colorTone: "bright",
-    religiousContent: "none",
-  },
-];
+};
 
-const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
+const visualSeriesConfigs: Record<
+  VisualSeries,
+  {
+    emoji: string;
+    bgStart: string;
+    bgEnd: string;
+    accent: string;
+    label: string;
+  }
+> = {
+  花系列: { emoji: "🌸", bgStart: "#fff1f2", bgEnd: "#fecdd3", accent: "#be123c", label: "花開暖暖" },
+  山水系列: { emoji: "⛰️", bgStart: "#ecfeff", bgEnd: "#bae6fd", accent: "#0f766e", label: "山水安穩" },
+  神佛系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412", label: "安心靜心" },
+  小孩系列: { emoji: "🧒", bgStart: "#fef9c3", bgEnd: "#fde68a", accent: "#a16207", label: "童心可愛" },
+  動物系列: { emoji: "🐶", bgStart: "#fef3c7", bgEnd: "#fdba74", accent: "#92400e", label: "動物陪伴" },
+  茶水果系列: { emoji: "🍵", bgStart: "#f7fee7", bgEnd: "#bbf7d0", accent: "#166534", label: "茶果溫柔" },
+  日出系列: { emoji: "🌅", bgStart: "#ffedd5", bgEnd: "#fdba74", accent: "#c2410c", label: "晨光希望" },
+  節慶系列: { emoji: "🏮", bgStart: "#fee2e2", bgEnd: "#fca5a5", accent: "#b91c1c", label: "喜氣熱鬧" },
+  書法字系列: { emoji: "墨", bgStart: "#f5f5f4", bgEnd: "#d6d3d1", accent: "#292524", label: "字韻穩重" },
+};
+
+function createGeneratedCards() {
+  const generated: CardAsset[] = [];
+  let index = 1;
+
+  for (const textType of textTypes) {
+    const textConfig = textTypeConfigs[textType];
+    for (const visualSeries of visualSeriesOptions) {
+      const visualConfig = visualSeriesConfigs[visualSeries];
+      for (let variant = 0; variant < 3; variant += 1) {
+        const id = `C${String(index).padStart(4, "0")}`;
+        generated.push({
+          id,
+          title: `${textConfig.titles[variant]}・${visualConfig.label}`,
+          textType,
+          visualSeries,
+          tone: textConfig.tone,
+          caption: textConfig.captions[variant],
+          prompt: textConfig.prompt,
+          status: "active",
+          cc0Source: "Jenny generated card",
+          imageUrl: `/api/m01/cards/${id}/image`,
+          fontSize: textConfig.fontSize,
+          textDensity: textConfig.textDensity,
+          colorTone: textConfig.colorTone,
+          religiousContent: textConfig.religiousContent,
+          emoji: visualConfig.emoji,
+          bgStart: visualConfig.bgStart,
+          bgEnd: visualConfig.bgEnd,
+          accent: visualConfig.accent,
+        });
+        index += 1;
+      }
+    }
+  }
+
+  return generated;
+}
+
+export const cards: CardAsset[] = createGeneratedCards();
 
 function resolveSupabaseRestUrl() {
   const url = process.env.SUPABASE_URL;
@@ -230,8 +241,19 @@ function canUseSupabaseCards() {
   return Boolean(resolveSupabaseRestUrl() && supabaseHeaders());
 }
 
-function mapCardRow(row: CardRow): CardAsset {
+function enrichCard(card: Omit<CardAsset, "emoji" | "bgStart" | "bgEnd" | "accent">) {
+  const visualConfig = visualSeriesConfigs[card.visualSeries];
   return {
+    ...card,
+    emoji: visualConfig.emoji,
+    bgStart: visualConfig.bgStart,
+    bgEnd: visualConfig.bgEnd,
+    accent: visualConfig.accent,
+  } satisfies CardAsset;
+}
+
+function mapCardRow(row: CardRow): CardAsset {
+  return enrichCard({
     id: row.id,
     title: row.title,
     textType: row.text_type,
@@ -246,7 +268,7 @@ function mapCardRow(row: CardRow): CardAsset {
     textDensity: row.text_density,
     colorTone: row.color_tone,
     religiousContent: row.religious_content,
-  };
+  });
 }
 
 async function supabaseReadCards() {
@@ -301,45 +323,26 @@ export async function recommendCards(options: {
   excludeCardIds?: string[];
 }) {
   const pool = (await getActiveCards()).filter((card) => !(options.excludeCardIds ?? []).includes(card.id));
-  const picks: CardAsset[] = [];
+
+  const exact = pool.filter((card) => card.textType === options.textType && card.visualSeries === options.visualSeries);
+  const sameTextType = pool.filter((card) => card.textType === options.textType && card.visualSeries !== options.visualSeries);
+  const sameVisual = pool.filter((card) => card.visualSeries === options.visualSeries && card.textType !== options.textType);
+  const randomPool = pool
+    .filter((card) => card.textType !== options.textType && card.visualSeries !== options.visualSeries)
+    .sort(() => Math.random() - 0.5);
+
+  const selected: CardAsset[] = [];
   const used = new Set<string>();
 
-  const first =
-    pool.find((card) => card.textType === options.textType && card.visualSeries === options.visualSeries) ??
-    pool.find((card) => card.textType === options.textType) ??
-    pool.find((card) => card.visualSeries === options.visualSeries) ??
-    pool[0];
-
-  if (first) {
-    picks.push(first);
-    used.add(first.id);
+  for (const bucket of [exact, sameTextType, sameVisual, randomPool]) {
+    for (const card of bucket) {
+      if (selected.length >= 3) break;
+      if (!used.has(card.id)) {
+        selected.push(card);
+        used.add(card.id);
+      }
+    }
   }
 
-  const second =
-    pool.find(
-      (card) =>
-        !used.has(card.id) &&
-        card.textType === options.textType &&
-        card.visualSeries !== (first?.visualSeries ?? options.visualSeries),
-    ) ?? pool.find((card) => !used.has(card.id) && card.textType === options.textType) ?? pool.find((card) => !used.has(card.id));
-
-  if (second) {
-    picks.push(second);
-    used.add(second.id);
-  }
-
-  const third =
-    pool.find(
-      (card) =>
-        !used.has(card.id) &&
-        card.visualSeries === options.visualSeries &&
-        card.textType !== (first?.textType ?? options.textType),
-    ) ?? pool.find((card) => !used.has(card.id) && card.visualSeries === options.visualSeries) ?? pool.find((card) => !used.has(card.id));
-
-  if (third) {
-    picks.push(third);
-    used.add(third.id);
-  }
-
-  return picks;
+  return selected.slice(0, 3);
 }

@@ -167,9 +167,31 @@ async function setDefaultRichMenu(token, richMenuId) {
       `https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`,
       "-H",
       `Authorization: Bearer ${token}`,
+      "-H",
+      "Content-Length: 0",
     ],
     { encoding: "utf8" },
   );
+}
+
+async function verifyDefaultRichMenu(token) {
+  const output = execFileSync(
+    "curl",
+    [
+      "--silent",
+      "--show-error",
+      "--connect-timeout",
+      "30",
+      "--max-time",
+      "90",
+      "https://api.line.me/v2/bot/user/all/richmenu",
+      "-H",
+      `Authorization: Bearer ${token}`,
+    ],
+    { encoding: "utf8" },
+  );
+
+  return JSON.parse(output);
 }
 
 async function main() {
@@ -188,9 +210,10 @@ async function main() {
   const richMenuId = await createRichMenu(token);
   await uploadRichMenuImage(token, richMenuId);
   await setDefaultRichMenu(token, richMenuId);
+  const verify = await verifyDefaultRichMenu(token);
 
   console.log(`richMenuId: ${richMenuId}`);
-  console.log("Default rich menu has been updated.");
+  console.log(`Default rich menu check: ${JSON.stringify(verify)}`);
   console.log("Test checklist:");
   console.log("1. Open the LINE OA chat.");
   console.log("2. Tap left area: 製作長輩圖 -> should enter M01.");
