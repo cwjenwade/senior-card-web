@@ -1,22 +1,12 @@
 export type TextType =
-  | "祝福語"
   | "問安語"
   | "勵志語"
-  | "平安語"
-  | "健康語"
-  | "幽默語"
-  | "陪伴語";
+  | "神佛金句";
 
 export type VisualSeries =
   | "花系列"
-  | "山水系列"
   | "神佛系列"
-  | "小孩系列"
-  | "動物系列"
-  | "茶水果系列"
-  | "日出系列"
-  | "節慶系列"
-  | "書法字系列";
+  | "山林系列";
 
 export type CardAsset = {
   id: string;
@@ -58,18 +48,12 @@ type CardRow = {
 
 const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
 
-export const textTypes: TextType[] = ["祝福語", "問安語", "勵志語", "平安語", "健康語", "幽默語", "陪伴語"];
+export const textTypes: TextType[] = ["問安語", "勵志語", "神佛金句"];
 
 export const visualSeriesOptions: VisualSeries[] = [
   "花系列",
-  "山水系列",
   "神佛系列",
-  "小孩系列",
-  "動物系列",
-  "茶水果系列",
-  "日出系列",
-  "節慶系列",
-  "書法字系列",
+  "山林系列",
 ];
 
 const textTypeConfigs: Record<
@@ -85,24 +69,14 @@ const textTypeConfigs: Record<
     prompt: string;
   }
 > = {
-  祝福語: {
-    tone: "溫和",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "warm",
-    religiousContent: "none",
-    titles: ["平安就是福", "福氣跟著來", "事事都順心"],
-    captions: ["願你今天平安健康，事事順心。", "有我溫暖的祝福，願平安健康。", "心存感恩富足，福氣自然跟著來。"],
-    prompt: "選一張你今天喜歡的祝福圖。",
-  },
   問安語: {
     tone: "溫和",
     fontSize: "large",
     textDensity: "short",
     colorTone: "calm",
     religiousContent: "none",
-    titles: ["早安", "日安", "輕聲問好"],
-    captions: ["每日心轉念，福氣跟著來。", "歲月平靜好，平安是福。", "想跟你說聲早安，今天也要保重。"],
+    titles: ["早安", "午安", "平安問候"],
+    captions: ["願你今天平安順心，心情輕鬆。", "送上一句問安，願你今天舒服自在。", "今天也記得照顧自己，慢慢來就好。"],
     prompt: "選一張今天的問安圖。",
   },
   勵志語: {
@@ -111,49 +85,19 @@ const textTypeConfigs: Record<
     textDensity: "medium",
     colorTone: "bright",
     religiousContent: "none",
-    titles: ["慢慢也很好", "日日都有光", "一步一步來"],
-    captions: ["簡單生活，知足常樂。", "放慢步調，願心情平靜順心。", "好事慢慢來，日子慢慢走。"],
+    titles: ["日日都有光", "一步一步來", "慢慢也很好"],
+    captions: ["放慢腳步，今天也能有好心情。", "願你心裡有光，日子一天比一天安穩。", "好事慢慢來，福氣也會慢慢來。"],
     prompt: "選一張今天的勵志圖。",
   },
-  平安語: {
+  神佛金句: {
     tone: "平靜",
     fontSize: "large",
     textDensity: "short",
     colorTone: "calm",
-    religiousContent: "none",
-    titles: ["平安", "心安", "歲月靜好"],
-    captions: ["願身體健康，事事順心。", "平安就是福，順心就是樂。", "願心情平靜，日日平安。"],
-    prompt: "選一張讓人安心的圖。",
-  },
-  健康語: {
-    tone: "平靜",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "calm",
-    religiousContent: "none",
-    titles: ["保重身體", "健康最要緊", "今天也保重"],
-    captions: ["願身體健康，事事順心。", "平安就是福，健康最重要。", "好好休息，慢慢來就很好。"],
-    prompt: "選一張今天的健康圖。",
-  },
-  幽默語: {
-    tone: "明亮",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "bright",
-    religiousContent: "none",
-    titles: ["笑一下", "今天輕鬆點", "可愛一下"],
-    captions: ["輕鬆過日子，開心最重要。", "今天先笑一下，福氣就來啦。", "可可愛愛，心情自然就放鬆。"],
-    prompt: "選一張今天想笑一下的圖。",
-  },
-  陪伴語: {
-    tone: "陪伴",
-    fontSize: "large",
-    textDensity: "short",
-    colorTone: "warm",
-    religiousContent: "none",
-    titles: ["你辛苦了", "我陪你", "慢慢都會好"],
-    captions: ["凡事量力而行，寬心自在生活。", "先休息一下，有人陪你慢慢走。", "今天辛苦了，願你安心自在。"],
-    prompt: "選一張有陪伴感的圖。",
+    religiousContent: "high",
+    titles: ["佛光護佑", "福慧圓滿", "心安得福"],
+    captions: ["願你平安健康，福慧常伴左右。", "一念清淨，願今天事事安好。", "心安就是福，願福氣常在。"],
+    prompt: "選一張今天的神佛金句圖。",
   },
 };
 
@@ -168,14 +112,8 @@ const visualSeriesConfigs: Record<
   }
 > = {
   花系列: { emoji: "🌸", bgStart: "#fff1f2", bgEnd: "#fecdd3", accent: "#be123c", label: "花開暖暖" },
-  山水系列: { emoji: "⛰️", bgStart: "#ecfeff", bgEnd: "#bae6fd", accent: "#0f766e", label: "山水安穩" },
   神佛系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412", label: "安心靜心" },
-  小孩系列: { emoji: "🧒", bgStart: "#fef9c3", bgEnd: "#fde68a", accent: "#a16207", label: "童心可愛" },
-  動物系列: { emoji: "🐶", bgStart: "#fef3c7", bgEnd: "#fdba74", accent: "#92400e", label: "動物陪伴" },
-  茶水果系列: { emoji: "🍵", bgStart: "#f7fee7", bgEnd: "#bbf7d0", accent: "#166534", label: "茶果溫柔" },
-  日出系列: { emoji: "🌅", bgStart: "#ffedd5", bgEnd: "#fdba74", accent: "#c2410c", label: "晨光希望" },
-  節慶系列: { emoji: "🏮", bgStart: "#fee2e2", bgEnd: "#fca5a5", accent: "#b91c1c", label: "喜氣熱鬧" },
-  書法字系列: { emoji: "墨", bgStart: "#f5f5f4", bgEnd: "#d6d3d1", accent: "#292524", label: "字韻穩重" },
+  山林系列: { emoji: "🌿", bgStart: "#ecfccb", bgEnd: "#bbf7d0", accent: "#166534", label: "山林清氣" },
 };
 
 function createGeneratedCards() {
@@ -300,8 +238,8 @@ export async function listCards() {
       if (liveCards.length > 0) {
         return liveCards;
       }
-    } catch (error) {
-      console.error(error);
+    } catch {
+      // Fallback to generated cards until the formal Supabase card_catalog is provisioned.
     }
   }
   return cards;

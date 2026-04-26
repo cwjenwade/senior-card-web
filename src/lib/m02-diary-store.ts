@@ -11,6 +11,7 @@ type M02DiaryEntry = {
   session_id: string;
   diary_text: string;
   diary_date: string;
+  linked_card_id?: string;
   completed: boolean;
   completed_at: string;
   created_at: string;
@@ -27,6 +28,7 @@ type SupabaseDiaryRow = {
   id: string;
   session_id: string;
   user_id: string;
+  linked_card_id?: string | null;
   entry_text: string;
   created_at: string;
   source: string;
@@ -163,6 +165,7 @@ export async function getTodayEntry(lineUserId: string) {
         session_id: row.session_id,
         diary_text: row.entry_text,
         diary_date: today,
+        linked_card_id: String((row as SupabaseDiaryRow & { linked_card_id?: string }).linked_card_id ?? ""),
         completed: true,
         completed_at: row.created_at,
         created_at: row.created_at,
@@ -184,7 +187,7 @@ export async function createDiaryEntry(payload: M02DiaryEntry) {
       id: `dia_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       session_id: payload.session_id,
       user_id: payload.line_user_id,
-      linked_card_id: null,
+      linked_card_id: payload.linked_card_id ?? null,
       mood_today: "",
       text_type_preference: "",
       visual_series_preference: "",

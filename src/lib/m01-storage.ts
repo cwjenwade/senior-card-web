@@ -14,7 +14,6 @@ export type StoredInteractionEvent = {
     | "visual_series_selected"
     | "shown"
     | "selected"
-    | "disliked"
     | "reshuffled"
     | "used_for_diary";
   cardId: string | null;

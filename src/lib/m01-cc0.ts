@@ -12,14 +12,8 @@ const OPENVERSE_BASE = "https://api.openverse.org/v1/images/";
 
 const QUERY_MAP = {
   花系列: "flowers blossom garden",
-  山水系列: "mountains valley landscape",
   神佛系列: "temple shrine statue",
-  小孩系列: "child smiling portrait",
-  動物系列: "bird duck animal nature",
-  茶水果系列: "tea fruit still life",
-  日出系列: "sunrise sky morning",
-  節慶系列: "lantern festival celebration",
-  書法字系列: "paper texture ink",
+  山林系列: "forest mountain landscape",
 } as const;
 
 const cache = new Map<string, Promise<OpenverseImage[]>>();

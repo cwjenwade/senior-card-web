@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "line:create-rich-menu": "node scripts/create-rich-menu.mjs"
+    "line:create-rich-menu": "node scripts/create-rich-menu.mjs",
+    "batch:check-tables": "python3 scripts/jenny_batch_bridge.py check-tables",
+    "batch:export-diaries": "python3 scripts/jenny_batch_bridge.py export-diaries",
+    "batch:import-analysis": "python3 scripts/jenny_batch_bridge.py import-analysis",
+    "batch:run-manual-loop": "bash scripts/run-manual-analysis-loop.sh",
+    "verify:remote-storage": "python3 scripts/verify_remote_storage.py"
   },
   "dependencies": {
     "next": "16.2.4",

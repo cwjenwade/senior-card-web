@@ -1,8 +1,28 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
-import { listCards, recommendCards, textTypes, visualSeriesOptions, type TextType, type VisualSeries } from "@/lib/m01-cards";
+import {
+  getCardPreference,
+  getDailyRecommendations,
+  getDiaryEntryForDate,
+  getEggProgress,
+  getGuidedDiaryPrompt,
+  getParticipant,
+  listCardInteractions,
+  normalizeDiaryAnalysis,
+  recalculateEggProgress,
+  recordCardInteraction,
+  runQueueDetection,
+  saveDailyRecommendations,
+  upsertCardPreference,
+  upsertDiaryEntry,
+  upsertGuidedDiaryPrompt,
+  upsertParticipant,
+  upsertPartnerLink,
+} from "@/lib/jenny-product-store";
+import { listCards, type CardAsset } from "@/lib/m01-cards";
 import { getRecentShownCardIds, getSession, hasCompletedM01Today, markM01Completed, recordCardFeedback, updateSession } from "@/lib/m01-session-store";
+import { getM03Session, updateM03Session } from "@/lib/m03-session-store";
 import {
   countCjkCharacters,
   createDiaryEntry,
@@ -36,30 +56,29 @@ type LineEvent =
       source?: { userId?: string };
     };
 
-type M01Payload = {
+type ParsedPostback = {
   module: string;
   action: string;
   sessionId: string;
-  mood: string;
-  textType: string;
-  visualSeries: string;
   cardId: string;
+  partnerChoice: string;
 };
 
 const M01_TEXT_TRIGGERS = new Set(["製作長輩圖", "長輩圖", "今日長輩圖", "m01"]);
-const M02_TEXT_TRIGGERS = new Set(["寫日記換雞蛋", "寫日記", "今日日記", "m02"]);
-const M01_MOODS = ["開心", "平靜", "累", "煩", "寂寞", "沮喪", "沒特別感覺"] as const;
+const M02_TEXT_TRIGGERS = new Set(["寫日記換雞蛋", "寫日記", "看圖寫一句", "今日日記", "m02"]);
+const M03_TEXT_TRIGGERS = new Set(["我的小檔案", "小檔案", "我的簡單設定", "m03"]);
+const EGG_TEXT_TRIGGERS = new Set(["我的雞蛋進度", "雞蛋進度", "egg"]);
+const MIN_DIARY_CJK = 20;
+const MAX_DIARY_CJK = 300;
 
-function parsePostback(data: string) {
+function parsePostback(data: string): ParsedPostback {
   const params = new URLSearchParams(data);
   return {
     module: params.get("module") ?? "",
     action: params.get("action") ?? "",
     sessionId: params.get("session_id") ?? "",
-    mood: params.get("mood") ?? "",
-    textType: params.get("text_type") ?? "",
-    visualSeries: params.get("visual_series") ?? "",
     cardId: params.get("card_id") ?? "",
+    partnerChoice: params.get("partner") ?? "",
   };
 }
 
@@ -73,10 +92,7 @@ function verifySignature(body: string, signature: string | null, secret: string)
 
 async function replyToLine(replyToken: string, messages: unknown[]) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!token) {
-    console.error("Missing env: LINE_CHANNEL_ACCESS_TOKEN");
-    throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
-  }
+  if (!token) throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
 
   const response = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
@@ -84,24 +100,16 @@ async function replyToLine(replyToken: string, messages: unknown[]) {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      replyToken,
-      messages,
-    }),
+    body: JSON.stringify({ replyToken, messages }),
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    console.error(`LINE reply failed: ${response.status} ${text}`);
-    throw new Error(`LINE reply failed: ${response.status}`);
+    throw new Error(`LINE reply failed: ${response.status} ${await response.text()}`);
   }
 }
 
 function unknownMessage() {
-  return {
-    type: "text",
-    text: "請從下方選單選擇服務。",
-  };
+  return { type: "text", text: "請從下方選單選擇服務。" };
 }
 
 function createM01SessionId(userId: string) {
@@ -112,193 +120,43 @@ function createM02SessionId(userId: string) {
   return `m02-${userId}-${Date.now()}`;
 }
 
+function createM03SessionId(userId: string) {
+  return `m03-${userId}-${Date.now()}`;
+}
+
 function getBaseUrl(request: NextRequest) {
   if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/+$/, "");
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
-  }
-  return request.nextUrl.origin;
+  const proto = request.headers.get("x-forwarded-proto");
+  const host = request.headers.get("x-forwarded-host");
+  return proto && host ? `${proto}://${host}` : request.nextUrl.origin;
 }
 
 function buildCardImageUrl(baseUrl: string, cardId: string) {
   return `${baseUrl}/api/m01/cards/${encodeURIComponent(cardId)}/image`;
 }
 
-function getM01Stage(session: Awaited<ReturnType<typeof getSession>>) {
-  if (!session) return "idle" as const;
-  if (!session.mood_today) return "waiting_for_mood" as const;
-  if (!session.text_type_preference) return "waiting_for_text_type" as const;
-  if (!session.visual_series_preference) return "waiting_for_visual_series" as const;
-  return "ready" as const;
+function extractDiaryContent(rawText: string) {
+  return rawText.replace(/^日記[:：]\s*/u, "").trim();
 }
 
-function deriveM01PayloadFromText(text: string, session: Awaited<ReturnType<typeof getSession>>) {
-  if (!session) return null;
-  const stage = getM01Stage(session);
-
-  if (stage === "waiting_for_mood" && M01_MOODS.includes(text as (typeof M01_MOODS)[number])) {
-    return {
-      module: "m01",
-      action: "set_mood",
-      sessionId: session.session_id,
-      mood: text,
-      textType: "",
-      visualSeries: "",
-      cardId: "",
-    } satisfies M01Payload;
-  }
-
-  if (stage === "waiting_for_text_type" && textTypes.includes(text as TextType)) {
-    return {
-      module: "m01",
-      action: "set_text_type",
-      sessionId: session.session_id,
-      mood: session.mood_today,
-      textType: text,
-      visualSeries: "",
-      cardId: "",
-    } satisfies M01Payload;
-  }
-
-  if (stage === "waiting_for_visual_series" && visualSeriesOptions.includes(text as VisualSeries)) {
-    return {
-      module: "m01",
-      action: "set_visual_series",
-      sessionId: session.session_id,
-      mood: session.mood_today,
-      textType: session.text_type_preference,
-      visualSeries: text,
-      cardId: "",
-    } satisfies M01Payload;
-  }
-
-  return null;
-}
-
-function buildLargeOptionCarousel(title: string, options: Array<{ label: string; data: string; displayText: string }>) {
-  const chunks: Array<typeof options> = [];
-  for (let i = 0; i < options.length; i += 3) {
-    chunks.push(options.slice(i, i + 3));
-  }
-
+function buildFourButtonQuickReply(items: Array<{ label: string; data: string; displayText: string }>) {
   return {
-    type: "flex",
-    altText: title,
-    contents: {
-      type: "carousel",
-      contents: chunks.map((chunk) => ({
-        type: "bubble",
-        size: "mega",
-        body: {
-          type: "box",
-          layout: "vertical",
-          spacing: "lg",
-          contents: [
-            {
-              type: "text",
-              text: title,
-              weight: "bold",
-              size: "xxl",
-              wrap: true,
-            },
-            ...chunk.map((option) => ({
-              type: "button",
-              style: "primary",
-              height: "md",
-              action: {
-                type: "postback",
-                label: option.label,
-                data: option.data,
-                displayText: option.displayText,
-              },
-            })),
-          ],
-        },
-      })),
-    },
+    items: items.map((item) => ({
+      type: "action",
+      action: {
+        type: "postback",
+        label: item.label,
+        data: item.data,
+        displayText: item.displayText,
+      },
+    })),
   };
 }
 
-function moodSelectorMessage(sessionId: string) {
-  return buildLargeOptionCarousel(
-    "今天比較像哪一種心情？",
-    M01_MOODS.map((mood) => ({
-      label: mood,
-      data: `module=m01&action=set_mood&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}`,
-      displayText: mood,
-    })),
-  );
-}
-
-function textTypeSelectorMessage(sessionId: string, mood: string) {
-  return buildLargeOptionCarousel(
-    "今天想看哪一種話？",
-    textTypes.map((textType) => ({
-      label: textType,
-      data: `module=m01&action=set_text_type&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}`,
-      displayText: textType,
-    })),
-  );
-}
-
-function visualSeriesSelectorMessage(sessionId: string, mood: string, textType: string) {
-  return buildLargeOptionCarousel(
-    "今天想看哪一種圖？",
-    visualSeriesOptions.map((visualSeries) => ({
-      label: visualSeries,
-      data: `module=m01&action=set_visual_series&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}&visual_series=${encodeURIComponent(visualSeries)}`,
-      displayText: visualSeries,
-    })),
-  );
-}
-
-async function buildM01Recommendations(lineUserId: string, payload: M01Payload) {
-  const recentShown = await getRecentShownCardIds(lineUserId);
-  const excludeCardIds = [...new Set([...recentShown])];
-  const picks = await recommendCards({
-    textType: payload.textType as TextType,
-    visualSeries: payload.visualSeries as VisualSeries,
-    excludeCardIds,
-  });
-
-  const availableCards = await listCards();
-  const fallbackPool = availableCards.filter((card) => !excludeCardIds.includes(card.id));
-
-  const selected = [...picks];
-  const used = new Set(selected.map((card) => card.id));
-
-  const sameTextType = fallbackPool.filter((card) => !used.has(card.id) && card.textType === payload.textType);
-  const sameVisualSeries = fallbackPool.filter((card) => !used.has(card.id) && card.visualSeries === payload.visualSeries);
-  const randomPool = fallbackPool.filter((card) => !used.has(card.id)).sort(() => Math.random() - 0.5);
-
-  for (const bucket of [sameTextType, sameVisualSeries, randomPool]) {
-    for (const card of bucket) {
-      if (selected.length >= 3) break;
-      if (!used.has(card.id)) {
-        selected.push(card);
-        used.add(card.id);
-      }
-    }
-  }
-
-  return selected.slice(0, 3);
-}
-
-function buildM01Carousel(
-  baseUrl: string,
-  state: {
-    sessionId: string;
-    mood: string;
-    textType: string;
-    visualSeries: string;
-  },
-  cards: Awaited<ReturnType<typeof buildM01Recommendations>>,
-) {
+function buildM01Carousel(baseUrl: string, sessionId: string, cards: CardAsset[]) {
   return {
     type: "flex",
-    altText: "長輩圖推薦",
+    altText: "今日長輩圖",
     contents: {
       type: "carousel",
       contents: cards.map((card) => ({
@@ -315,34 +173,9 @@ function buildM01Carousel(
           layout: "vertical",
           spacing: "sm",
           contents: [
-            {
-              type: "text",
-              text: card.title,
-              weight: "bold",
-              size: "xl",
-              wrap: true,
-            },
-            {
-              type: "text",
-              text: card.textType,
-              size: "lg",
-              color: "#475569",
-              wrap: true,
-            },
-            {
-              type: "text",
-              text: card.visualSeries,
-              size: "lg",
-              color: "#475569",
-              wrap: true,
-            },
-            {
-              type: "text",
-              text: card.caption,
-              size: "md",
-              color: "#334155",
-              wrap: true,
-            },
+            { type: "text", text: card.title, weight: "bold", size: "xl", wrap: true },
+            { type: "text", text: `${card.textType} / ${card.visualSeries}`, size: "sm", color: "#475569", wrap: true },
+            { type: "text", text: card.caption, size: "sm", color: "#334155", wrap: true },
           ],
         },
         footer: {
@@ -353,11 +186,10 @@ function buildM01Carousel(
             {
               type: "button",
               style: "primary",
-              height: "md",
               action: {
                 type: "postback",
                 label: "選這張",
-                data: `module=m01&action=select&session_id=${encodeURIComponent(state.sessionId)}&mood=${encodeURIComponent(state.mood)}&text_type=${encodeURIComponent(state.textType)}&visual_series=${encodeURIComponent(state.visualSeries)}&card_id=${encodeURIComponent(card.id)}`,
+                data: `module=m01&action=select&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
                 displayText: `選這張 ${card.title}`,
               },
             },
@@ -368,238 +200,305 @@ function buildM01Carousel(
   };
 }
 
-function refreshQuickReply(sessionId: string, mood: string, textType: string, visualSeries: string) {
+function buildM03LikeCarousel(baseUrl: string, sessionId: string, cards: CardAsset[]) {
   return {
-    items: [
-      {
-        type: "action",
-        action: {
-          type: "postback",
-          label: "換一組",
-          data: `module=m01&action=refresh&session_id=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&text_type=${encodeURIComponent(textType)}&visual_series=${encodeURIComponent(visualSeries)}`,
-          displayText: "換一組",
+    type: "flex",
+    altText: "選三張喜歡的圖",
+    contents: {
+      type: "carousel",
+      contents: cards.map((card) => ({
+        type: "bubble",
+        hero: {
+          type: "image",
+          url: buildCardImageUrl(baseUrl, card.id),
+          size: "full",
+          aspectRatio: "4:5",
+          aspectMode: "cover",
         },
-      },
-    ],
+        body: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: card.title, weight: "bold", size: "lg", wrap: true },
+            { type: "text", text: `${card.textType} / ${card.visualSeries}`, size: "sm", color: "#475569", wrap: true },
+          ],
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            {
+              type: "button",
+              style: "secondary",
+              action: {
+                type: "postback",
+                label: "喜歡這張",
+                data: `module=m03&action=like_card&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
+                displayText: `喜歡這張 ${card.title}`,
+              },
+            },
+          ],
+        },
+      })),
+    },
   };
 }
 
-function createM02StartMessage() {
+function partnerChoiceMessage(sessionId: string) {
   return {
     type: "text",
-    text: "今天也來留下生活紀錄吧。\n請輸入：\n日記：今天早上吃了稀飯，下午去公園走走。",
+    text: "如果之後比較久沒出現，願意有固定關懷夥伴先提醒一下嗎？",
+    quickReply: buildFourButtonQuickReply([
+      { label: "願意", data: `module=m03&action=set_partner&session_id=${encodeURIComponent(sessionId)}&partner=yes`, displayText: "願意" },
+      { label: "先不要", data: `module=m03&action=set_partner&session_id=${encodeURIComponent(sessionId)}&partner=no`, displayText: "先不要" },
+    ]),
   };
 }
 
-async function handleM01Start(replyToken: string, lineUserId: string) {
-  const today = getTodayInTaipei();
-  if (await hasCompletedM01Today(lineUserId, today)) {
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天已經完成一張長輩圖，明天再來。",
-      },
-    ]);
-    return;
+function summarizeEggProgress(daysCompleted: number, eligible: boolean) {
+  return `兩週內已完成 ${daysCompleted} / 10 天。\n${eligible ? "已達成雞蛋資格。" : "再持續寫幾天就能達成。"} `;
+}
+
+function preferenceSummaryText(displayName: string, preferredStyleMain: string, preferredImagery: string, wantsPartner: boolean) {
+  return `小檔案摘要\n稱呼：${displayName}\n喜歡的風格：${preferredStyleMain || "尚未設定"} / ${preferredImagery || "尚未設定"}\n固定關懷夥伴：${wantsPartner ? "願意" : "先不要"}`;
+}
+
+function derivePreference(cards: CardAsset[]) {
+  const count = (values: string[]) =>
+    [...new Set(values)].sort((left, right) => values.filter((value) => value === right).length - values.filter((value) => value === left).length)[0] ?? "";
+  return {
+    preferred_style_main: count(cards.map((card) => card.textType)),
+    preferred_tone: count(cards.map((card) => card.tone)),
+    preferred_imagery: count(cards.map((card) => card.visualSeries)),
+    profile_confidence: cards.length / 3,
+  };
+}
+
+async function buildTodayRecommendations(lineUserId: string, date: string, forceRefresh = false) {
+  const existing = await getDailyRecommendations(lineUserId, date);
+  if (!forceRefresh && existing.length >= 3) {
+    const cards = await listCards();
+    return existing
+      .map((row) => cards.find((card) => card.id === row.card_id))
+      .filter(Boolean) as CardAsset[];
   }
 
-  const nextSession = await updateSession(lineUserId, {
-    session_id: createM01SessionId(lineUserId),
-    mood_today: "",
-    text_type_preference: "",
-    visual_series_preference: "",
-    recommended_card_ids: [],
-    selected_card_id: "",
-    created_at: new Date().toISOString(),
-  });
+  const cards = (await listCards()).filter((card) => card.status === "active");
+  const preference = await getCardPreference(lineUserId);
+  const recentShown = new Set(await getRecentShownCardIds(lineUserId));
+  const scored = cards
+    .map((card) => {
+      let score = 1;
+      const reasons: string[] = [];
+      if (preference?.preferred_style_main && card.textType === preference.preferred_style_main) {
+        score += 3;
+        reasons.push("符合文字風格");
+      }
+      if (preference?.preferred_imagery && card.visualSeries === preference.preferred_imagery) {
+        score += 3;
+        reasons.push("符合喜歡圖風");
+      }
+      if (preference?.preferred_tone && card.tone === preference.preferred_tone) {
+        score += 2;
+        reasons.push("符合情緒調性");
+      }
+      if (card.religiousContent === "none") {
+        score += 1;
+      }
+      if (recentShown.has(card.id)) {
+        score -= 2;
+        reasons.push("近期看過");
+      }
+      return { card, score, reasonText: reasons.join("、") || "中性推薦" };
+    })
+    .sort((left, right) => right.score - left.score || left.card.id.localeCompare(right.card.id));
 
+  const selected = scored.slice(0, 3);
+  const rows = selected.map((item, index) => ({
+    id: `${lineUserId}-${date}-${index + 1}`,
+    participant_id: lineUserId,
+    recommendation_date: date,
+    card_id: item.card.id,
+    rank_order: index + 1,
+    strategy_type: preference ? "preference_rule" : "neutral_fallback",
+    score_total: item.score,
+    reason_text: item.reasonText,
+  }));
+  await saveDailyRecommendations(rows);
+  return selected.map((item) => item.card);
+}
+
+async function ensureParticipantSeed(lineUserId: string) {
+  const participant = await getParticipant(lineUserId);
+  if (participant) return participant;
+  return upsertParticipant(lineUserId, { display_name: lineUserId, age_band: "", wants_partner: false });
+}
+
+async function handleEggProgress(replyToken: string, lineUserId: string) {
+  const today = getTodayInTaipei();
+  const progress = await getEggProgress(lineUserId, today);
   await replyToLine(replyToken, [
-    moodSelectorMessage(nextSession.session_id),
+    {
+      type: "text",
+      text: progress
+        ? `我的雞蛋進度\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`
+        : "目前還沒有兩週進度資料，今天先寫一句吧。",
+    },
   ]);
 }
 
-async function handleM01Postback(request: NextRequest, replyToken: string, lineUserId: string, payload: M01Payload) {
-  const session =
-    (await getSession(lineUserId)) ??
-    (await updateSession(lineUserId, { session_id: payload.sessionId || createM01SessionId(lineUserId), created_at: new Date().toISOString() }));
-  const effectiveSessionId = payload.sessionId || session.session_id || createM01SessionId(lineUserId);
+async function handleM01Start(request: NextRequest, replyToken: string, lineUserId: string, forceRefresh = false) {
   const today = getTodayInTaipei();
-
-  console.log("[m01] postback", {
-    lineUserId,
-    action: payload.action,
-    sessionId: effectiveSessionId,
-    mood: payload.mood,
-    textType: payload.textType,
-    visualSeries: payload.visualSeries,
-    cardId: payload.cardId,
-  });
-
-  if (payload.action === "start") {
-    await handleM01Start(replyToken, lineUserId);
-    return;
-  }
+  await ensureParticipantSeed(lineUserId);
 
   if (await hasCompletedM01Today(lineUserId, today)) {
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天已經完成一張長輩圖，明天再來。",
-      },
-    ]);
+    await replyToLine(replyToken, [{ type: "text", text: "今天已選好主圖。想寫一句的話，可以點「看圖寫一句」。" }]);
     return;
   }
 
-  if (payload.action === "set_mood") {
-    const nextSession = await updateSession(lineUserId, {
-      session_id: effectiveSessionId,
-      mood_today: payload.mood,
-      selected_card_id: "",
-    });
-    await replyToLine(replyToken, [
-      textTypeSelectorMessage(nextSession.session_id, payload.mood),
-    ]);
-    return;
-  }
-
-  if (payload.action === "set_text_type") {
-    const nextSession = await updateSession(lineUserId, {
-      session_id: effectiveSessionId,
-      mood_today: payload.mood || session.mood_today,
-      text_type_preference: payload.textType,
-      selected_card_id: "",
-    });
-    await replyToLine(replyToken, [
-      visualSeriesSelectorMessage(nextSession.session_id, payload.mood || nextSession.mood_today, payload.textType),
-    ]);
-    return;
-  }
-
-  if (payload.action === "set_visual_series" || payload.action === "refresh") {
-    const nextVisualSeries = payload.visualSeries || session.visual_series_preference;
-    const nextTextType = payload.textType || session.text_type_preference;
-    const nextMood = payload.mood || session.mood_today;
-
-    if (!nextTextType || !nextVisualSeries) {
-      console.error("[m01] missing selection state", {
-        lineUserId,
-        sessionId: effectiveSessionId,
-        action: payload.action,
-        payload,
-        session,
-      });
-      await replyToLine(replyToken, [unknownMessage()]);
+  if (forceRefresh) {
+    const refreshes = (await listCardInteractions(lineUserId)).filter((row) => row.interaction_date === today && row.action_type === "refresh").length;
+    if (refreshes >= 1) {
+      await replyToLine(replyToken, [{ type: "text", text: "今天已經換過一組推薦了，先從這三張挑一張吧。" }]);
       return;
     }
-
-    const recommendations = await buildM01Recommendations(lineUserId, {
-      ...payload,
-      module: "m01",
-      action: payload.action,
-      mood: nextMood,
-      textType: nextTextType,
-      visualSeries: nextVisualSeries,
-      cardId: payload.cardId,
-    });
-
-    await updateSession(lineUserId, {
-      session_id: effectiveSessionId,
-      mood_today: nextMood,
-      text_type_preference: nextTextType,
-      visual_series_preference: nextVisualSeries,
-      recommended_card_ids: recommendations.map((card) => card.id),
-      selected_card_id: "",
-    });
-
-    if (payload.action === "refresh") {
-      await recordCardFeedback({
-        line_user_id: lineUserId,
-        session_id: effectiveSessionId,
-        card_id: "",
-        event_type: "refreshed",
-        event_time: new Date().toISOString(),
-        mood_today: nextMood,
-        text_type_preference: nextTextType,
-        visual_series_preference: nextVisualSeries,
-      });
-    }
-
-    for (const card of recommendations) {
-      await recordCardFeedback({
-        line_user_id: lineUserId,
-        session_id: effectiveSessionId,
-        card_id: card.id,
-        event_type: "shown",
-        event_time: new Date().toISOString(),
-        mood_today: nextMood,
-        text_type_preference: nextTextType,
-        visual_series_preference: nextVisualSeries,
-      });
-    }
-
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: `這是今天為你準備的三張長輩圖：${nextTextType} × ${nextVisualSeries}`,
-      },
-      buildM01Carousel(
-        getBaseUrl(request),
-        {
-          sessionId: effectiveSessionId,
-          mood: nextMood,
-          textType: nextTextType,
-          visualSeries: nextVisualSeries,
-        },
-        recommendations,
-      ),
-      {
-        type: "text",
-        text: "你可以選這張，或換一組。",
-        quickReply: refreshQuickReply(effectiveSessionId, nextMood, nextTextType, nextVisualSeries),
-      },
-    ]);
-    return;
   }
 
-  if (payload.action === "select") {
-    const card = (await listCards()).find((item) => item.id === payload.cardId);
-    await updateSession(lineUserId, {
-      session_id: effectiveSessionId,
-      selected_card_id: payload.cardId,
-      completed_date: today,
+  const sessionId = createM01SessionId(lineUserId);
+  const cards = await buildTodayRecommendations(lineUserId, today, forceRefresh);
+  const interactionTime = new Date().toISOString();
+  await updateSession(lineUserId, {
+    session_id: sessionId,
+    recommended_card_ids: cards.map((card) => card.id),
+    selected_card_id: "",
+    completed_date: "",
+    created_at: interactionTime,
+  });
+
+  if (forceRefresh) {
+    await recordCardInteraction({
+      id: `ci-${lineUserId}-${today}-refresh`,
+      participant_id: lineUserId,
+      card_id: "",
+      interaction_date: today,
+      action_type: "refresh",
+      selected_as_main: false,
+      diary_written: false,
+      created_at: interactionTime,
     });
     await recordCardFeedback({
       line_user_id: lineUserId,
-      session_id: effectiveSessionId,
-      card_id: payload.cardId,
-      event_type: "selected",
-      event_time: new Date().toISOString(),
-      mood_today: payload.mood,
-      text_type_preference: payload.textType,
-      visual_series_preference: payload.visualSeries,
+      session_id: sessionId,
+      card_id: "",
+      event_type: "refreshed",
+      event_time: interactionTime,
     });
-    markM01Completed(lineUserId, today);
-    await replyToLine(replyToken, [
-      {
-        type: "image",
-        originalContentUrl: buildCardImageUrl(getBaseUrl(request), payload.cardId),
-        previewImageUrl: buildCardImageUrl(getBaseUrl(request), payload.cardId),
-      },
-      {
-        type: "text",
-        text: card
-          ? `長輩圖製作完成：${card.title}\n恭喜你選好今天的長輩圖，感謝你的使用。\n今天先到這裡，明天再來。`
-          : "長輩圖製作完成，感謝你的使用。\n今天先到這裡，明天再來。",
-      },
-    ]);
+  }
+
+  for (const card of cards) {
+    await recordCardInteraction({
+      id: `ci-${lineUserId}-${today}-${card.id}-view`,
+      participant_id: lineUserId,
+      card_id: card.id,
+      interaction_date: today,
+      action_type: "view",
+      selected_as_main: false,
+      diary_written: false,
+      created_at: interactionTime,
+    });
+    await recordCardFeedback({
+      line_user_id: lineUserId,
+      session_id: sessionId,
+      card_id: card.id,
+      event_type: "shown",
+      event_time: interactionTime,
+    });
+  }
+
+  await replyToLine(replyToken, [
+    { type: "text", text: "這是今天為你準備的三張長輩圖，選一張做今天的主圖吧。" },
+    buildM01Carousel(getBaseUrl(request), sessionId, cards),
+    {
+      type: "text",
+      text: "若今天想看另一組，可以換一次推薦。",
+      quickReply: buildFourButtonQuickReply([
+        { label: "換一組", data: "module=m01&action=refresh", displayText: "換一組" },
+        { label: "看圖寫一句", data: "module=m02&action=start", displayText: "看圖寫一句" },
+      ]),
+    },
+  ]);
+}
+
+async function handleM01Select(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  const today = getTodayInTaipei();
+  const session = await getSession(lineUserId);
+  const effectiveSessionId = payload.sessionId || session?.session_id || createM01SessionId(lineUserId);
+
+  if (await hasCompletedM01Today(lineUserId, today)) {
+    await replyToLine(replyToken, [{ type: "text", text: "今天已經選過主圖了，明天再來挑新的。" }]);
     return;
   }
 
-  await replyToLine(replyToken, [unknownMessage()]);
+  const card = (await listCards()).find((item) => item.id === payload.cardId);
+  if (!card) {
+    await replyToLine(replyToken, [unknownMessage()]);
+    return;
+  }
+
+  const now = new Date().toISOString();
+  await updateSession(lineUserId, {
+    session_id: effectiveSessionId,
+    selected_card_id: card.id,
+    completed_date: today,
+  });
+  await recordCardInteraction({
+    id: `ci-${lineUserId}-${today}-${card.id}-select`,
+    participant_id: lineUserId,
+    card_id: card.id,
+    interaction_date: today,
+    action_type: "select",
+    selected_as_main: true,
+    diary_written: false,
+    created_at: now,
+  });
+  await recordCardFeedback({
+    line_user_id: lineUserId,
+    session_id: effectiveSessionId,
+    card_id: card.id,
+    event_type: "selected",
+    event_time: now,
+  });
+  await upsertGuidedDiaryPrompt({
+    id: `${lineUserId}-${today}`,
+    participant_id: lineUserId,
+    prompt_date: today,
+    main_card_id: card.id,
+    prompt_text: card.prompt,
+    status: "ready",
+  });
+  markM01Completed(lineUserId, today);
+
+  await replyToLine(replyToken, [
+    {
+      type: "image",
+      originalContentUrl: buildCardImageUrl(getBaseUrl(request), card.id),
+      previewImageUrl: buildCardImageUrl(getBaseUrl(request), card.id),
+    },
+    {
+      type: "text",
+      text: `${card.title}\n今天的主圖已選定。\n接著可以點「看圖寫一句」，把今天的感受留下一句。`,
+      quickReply: buildFourButtonQuickReply([
+        { label: "看圖寫一句", data: "module=m02&action=start", displayText: "看圖寫一句" },
+      ]),
+    },
+  ]);
 }
 
 async function handleM02Start(replyToken: string, lineUserId: string) {
   const today = getTodayInTaipei();
+  const prompt = await getGuidedDiaryPrompt(lineUserId, today);
+  const progress = await getEggProgress(lineUserId, today);
 
   if (await hasCompletedToday(lineUserId, today)) {
     await recordM02RewardEvent({
@@ -608,12 +507,7 @@ async function handleM02Start(replyToken: string, lineUserId: string) {
       event_type: "duplicate_blocked",
       event_time: new Date().toISOString(),
     });
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天已經完成紀錄，明天再來。",
-      },
-    ]);
+    await replyToLine(replyToken, [{ type: "text", text: `今天已完成日記。\n${progress ? summarizeEggProgress(progress.days_completed, progress.egg_box_eligible) : ""}` }]);
     return;
   }
 
@@ -630,119 +524,284 @@ async function handleM02Start(replyToken: string, lineUserId: string) {
     event_time: new Date().toISOString(),
   });
 
-  await replyToLine(replyToken, [createM02StartMessage()]);
+  await replyToLine(replyToken, [
+    {
+      type: "text",
+      text: `${prompt?.prompt_text ?? "今天想記下一件什麼小事？"}\n直接輸入一句就可以，至少 ${MIN_DIARY_CJK} 個中文字。`,
+    },
+  ]);
 }
 
 async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawText: string) {
   const session = await getM02Session(lineUserId);
-
   if (session?.status !== "waiting_for_diary") {
     await replyToLine(replyToken, [unknownMessage()]);
     return;
   }
 
   const today = getTodayInTaipei();
-  if ((await hasCompletedToday(lineUserId, today)) || (await getTodayEntry(lineUserId))) {
+  if ((await hasCompletedToday(lineUserId, today)) || (await getTodayEntry(lineUserId)) || (await getDiaryEntryForDate(lineUserId, today))) {
     await updateM02Session(lineUserId, { status: "completed" });
-    await recordM02RewardEvent({
-      line_user_id: lineUserId,
-      session_id: session.session_id,
-      event_type: "duplicate_blocked",
-      event_time: new Date().toISOString(),
-    });
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "今天已經完成紀錄，明天再來。",
-      },
-    ]);
+    await replyToLine(replyToken, [{ type: "text", text: "今天已經完成紀錄，不會重複計算雞蛋進度。" }]);
     return;
   }
 
-  const content = rawText.replace(/^日記：/, "").trim();
-  if (!content) {
-    await recordM02RewardEvent({
-      line_user_id: lineUserId,
-      session_id: session.session_id,
-      event_type: "invalid_input",
-      event_time: new Date().toISOString(),
-    });
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "請在「日記：」後面輸入今天的生活紀錄。",
-      },
-    ]);
-    return;
-  }
-
+  const content = extractDiaryContent(rawText);
   const cjkLength = countCjkCharacters(content);
-
-  if (cjkLength < 100) {
+  if (!content || cjkLength < MIN_DIARY_CJK) {
     await recordM02RewardEvent({
       line_user_id: lineUserId,
       session_id: session.session_id,
       event_type: "too_short",
       event_time: new Date().toISOString(),
     });
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "內容還不夠，請至少寫滿 100 個字，才能完成今天的紀錄。",
-      },
-    ]);
+    await replyToLine(replyToken, [{ type: "text", text: `再多寫一點點吧，至少 ${MIN_DIARY_CJK} 個中文字就能完成今天的紀錄。` }]);
+    return;
+  }
+  if (cjkLength > MAX_DIARY_CJK) {
+    await replyToLine(replyToken, [{ type: "text", text: `內容太長了，請縮短到 ${MAX_DIARY_CJK} 字以內。` }]);
     return;
   }
 
-  if (cjkLength > 300) {
-    await recordM02RewardEvent({
-      line_user_id: lineUserId,
-      session_id: session.session_id,
-      event_type: "too_long",
-      event_time: new Date().toISOString(),
-    });
-    await replyToLine(replyToken, [
-      {
-        type: "text",
-        text: "內容太長，請縮短到 300 字以內。",
-      },
-    ]);
-    return;
-  }
+  const selectedCardId = (await getSession(lineUserId))?.selected_card_id ?? "";
+  const now = new Date().toISOString();
 
   await createDiaryEntry({
     line_user_id: lineUserId,
     session_id: session.session_id,
     diary_text: content,
     diary_date: today,
+    linked_card_id: selectedCardId,
     completed: true,
-    completed_at: new Date().toISOString(),
-    created_at: new Date().toISOString(),
+    completed_at: now,
+    created_at: now,
   });
 
-  await recordM02RewardEvent({
-    line_user_id: lineUserId,
-    session_id: session.session_id,
-    event_type: "diary_submitted",
-    event_time: new Date().toISOString(),
+  await upsertDiaryEntry({
+    id: `${lineUserId}-${today}`,
+    participant_id: lineUserId,
+    entry_date: today,
+    entry_text: content,
+    linked_card_id: selectedCardId,
+    ...normalizeDiaryAnalysis({ analysis_status: "pending" }),
+    created_at: now,
   });
+
+  if (selectedCardId) {
+    await recordCardInteraction({
+      id: `ci-${lineUserId}-${today}-${selectedCardId}-diary`,
+      participant_id: lineUserId,
+      card_id: selectedCardId,
+      interaction_date: today,
+      action_type: "diary_written",
+      selected_as_main: false,
+      diary_written: true,
+      created_at: now,
+    });
+  }
 
   markM02Completed(lineUserId, today);
   await updateM02Session(lineUserId, { status: "completed" });
-
   await recordM02RewardEvent({
     line_user_id: lineUserId,
     session_id: session.session_id,
     event_type: "completed",
-    event_time: new Date().toISOString(),
+    event_time: now,
+  });
+
+  const progress = await recalculateEggProgress(lineUserId, today);
+  await runQueueDetection(today);
+
+  await replyToLine(replyToken, [
+    {
+      type: "text",
+      text: `已收到今天的日記。\n今天已完成。\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`,
+    },
+  ]);
+}
+
+async function handleM03Start(request: NextRequest, replyToken: string, lineUserId: string) {
+  const participant = await ensureParticipantSeed(lineUserId);
+  const preference = await getCardPreference(lineUserId);
+
+  if (participant.display_name !== lineUserId && preference) {
+    await replyToLine(replyToken, [
+      {
+        type: "text",
+        text: preferenceSummaryText(participant.display_name, preference.preferred_style_main, preference.preferred_imagery, participant.wants_partner),
+      },
+    ]);
+    return;
+  }
+
+  await updateM03Session(lineUserId, {
+    session_id: createM03SessionId(lineUserId),
+    step: "waiting_for_name",
+    display_name: participant.display_name === lineUserId ? "" : participant.display_name,
+    liked_card_ids: [],
+    wants_partner: participant.wants_partner ? "yes" : "",
+  });
+
+  await replyToLine(replyToken, [{ type: "text", text: "我的小檔案\n先告訴我，想怎麼稱呼你？直接回覆名字或暱稱就可以。" }]);
+  void request;
+}
+
+async function handleM03NameInput(request: NextRequest, replyToken: string, lineUserId: string, text: string) {
+  const nextSession = await updateM03Session(lineUserId, {
+    step: "waiting_for_cards",
+    display_name: text.trim(),
+  });
+  const cards = (await listCards()).filter((card) => card.status === "active").slice(0, 6);
+  await replyToLine(replyToken, [
+    { type: "text", text: "接下來請選三張你喜歡的圖，幫我知道你偏好的風格。" },
+    buildM03LikeCarousel(getBaseUrl(request), nextSession.session_id, cards),
+  ]);
+}
+
+async function handleM03LikeCard(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  const session = (await getM03Session(lineUserId)) ?? (await updateM03Session(lineUserId, { session_id: payload.sessionId || createM03SessionId(lineUserId), step: "waiting_for_cards" }));
+  const nextLiked = [...new Set([...session.liked_card_ids, payload.cardId])];
+  if (nextLiked.length === session.liked_card_ids.length) {
+    await replyToLine(replyToken, [{ type: "text", text: "這張已經選過了，再挑別張看看。" }]);
+    return;
+  }
+
+  const nextSession = await updateM03Session(lineUserId, {
+    session_id: session.session_id,
+    step: "waiting_for_cards",
+    liked_card_ids: nextLiked,
+  });
+
+  if (nextLiked.length < 3) {
+    const cards = (await listCards()).filter((card) => card.status === "active").slice(0, 6);
+    await replyToLine(replyToken, [
+      { type: "text", text: `已選 ${nextLiked.length} / 3 張，再選 ${3 - nextLiked.length} 張就完成。` },
+      buildM03LikeCarousel(getBaseUrl(request), nextSession.session_id, cards),
+    ]);
+    return;
+  }
+
+  const allCards = await listCards();
+  const likedCards = nextLiked.map((cardId) => allCards.find((card) => card.id === cardId)).filter(Boolean) as CardAsset[];
+  const derived = derivePreference(likedCards);
+  await upsertParticipant(lineUserId, {
+    display_name: nextSession.display_name || lineUserId,
+  });
+  await upsertCardPreference({
+    participant_id: lineUserId,
+    preferred_style_main: derived.preferred_style_main,
+    preferred_tone: derived.preferred_tone,
+    preferred_imagery: derived.preferred_imagery,
+    profile_confidence: Number(derived.profile_confidence.toFixed(2)),
+    updated_at: new Date().toISOString(),
+  });
+  await updateM03Session(lineUserId, {
+    step: "waiting_for_partner",
+    liked_card_ids: nextLiked,
+  });
+  await replyToLine(replyToken, [partnerChoiceMessage(nextSession.session_id)]);
+  void request;
+}
+
+async function handleM03PartnerChoice(replyToken: string, lineUserId: string, choice: string) {
+  const wantsPartner = choice === "yes";
+  const participant = await upsertParticipant(lineUserId, { wants_partner: wantsPartner });
+  if (wantsPartner) {
+    await upsertPartnerLink({
+      id: `plink-${lineUserId}`,
+      participant_id: lineUserId,
+      partner_participant_id: "internal-partner-pool",
+      status: "active",
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  const preference = await getCardPreference(lineUserId);
+  await updateM03Session(lineUserId, {
+    step: "idle",
+    wants_partner: wantsPartner ? "yes" : "no",
   });
 
   await replyToLine(replyToken, [
     {
       type: "text",
-      text: "已收到今天的日記。\n今日已完成一次紀錄。",
+      text: preference
+        ? preferenceSummaryText(participant.display_name, preference.preferred_style_main, preference.preferred_imagery, participant.wants_partner)
+        : "小檔案已完成。",
     },
   ]);
+}
+
+async function handlePostback(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  if (payload.module === "m01" && payload.action === "start") {
+    await handleM01Start(request, replyToken, lineUserId);
+    return;
+  }
+  if (payload.module === "m01" && payload.action === "refresh") {
+    await handleM01Start(request, replyToken, lineUserId, true);
+    return;
+  }
+  if (payload.module === "m01" && payload.action === "select") {
+    await handleM01Select(request, replyToken, lineUserId, payload);
+    return;
+  }
+  if (payload.module === "m02" && payload.action === "start") {
+    await handleM02Start(replyToken, lineUserId);
+    return;
+  }
+  if (payload.module === "egg") {
+    await handleEggProgress(replyToken, lineUserId);
+    return;
+  }
+  if (payload.module === "m03" && payload.action === "start") {
+    await handleM03Start(request, replyToken, lineUserId);
+    return;
+  }
+  if (payload.module === "m03" && payload.action === "like_card") {
+    await handleM03LikeCard(request, replyToken, lineUserId, payload);
+    return;
+  }
+  if (payload.module === "m03" && payload.action === "set_partner") {
+    await handleM03PartnerChoice(replyToken, lineUserId, payload.partnerChoice);
+    return;
+  }
+
+  await replyToLine(replyToken, [unknownMessage()]);
+}
+
+async function handleTextMessage(request: NextRequest, event: Extract<LineEvent, { type: "message" }>, lineUserId: string) {
+  const text = event.message.text.trim();
+  const lowerText = text.toLowerCase();
+
+  if (M01_TEXT_TRIGGERS.has(text) || M01_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM01Start(request, event.replyToken, lineUserId);
+    return;
+  }
+  if (M02_TEXT_TRIGGERS.has(text) || M02_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM02Start(event.replyToken, lineUserId);
+    return;
+  }
+  if (M03_TEXT_TRIGGERS.has(text) || M03_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM03Start(request, event.replyToken, lineUserId);
+    return;
+  }
+  if (EGG_TEXT_TRIGGERS.has(text) || EGG_TEXT_TRIGGERS.has(lowerText)) {
+    await handleEggProgress(event.replyToken, lineUserId);
+    return;
+  }
+
+  const m03Session = await getM03Session(lineUserId);
+  if (m03Session?.step === "waiting_for_name") {
+    await handleM03NameInput(request, event.replyToken, lineUserId, text);
+    return;
+  }
+
+  if ((await getM02Session(lineUserId))?.status === "waiting_for_diary") {
+    await handleM02DiaryInput(event.replyToken, lineUserId, text);
+    return;
+  }
+
+  await replyToLine(event.replyToken, [unknownMessage()]);
 }
 
 async function handleEvent(request: NextRequest, event: LineEvent) {
@@ -751,75 +810,18 @@ async function handleEvent(request: NextRequest, event: LineEvent) {
   const lineUserId = event.source?.userId ?? "anonymous_user";
 
   if (event.type === "follow") {
-    await replyToLine(event.replyToken, [
-      {
-        type: "text",
-        text: "歡迎使用 Jenny。請從下方選單選擇服務。",
-      },
-    ]);
+    await ensureParticipantSeed(lineUserId);
+    await replyToLine(event.replyToken, [{ type: "text", text: "歡迎使用 Jenny。請從下方選單選擇服務。" }]);
     return;
   }
 
   if (event.type === "postback") {
-    const payload = parsePostback(event.postback.data);
-
-    if (payload.module === "m01") {
-      await handleM01Postback(request, event.replyToken, lineUserId, payload);
-      return;
-    }
-
-    if (payload.module === "m02" && payload.action === "start") {
-      await handleM02Start(event.replyToken, lineUserId);
-      return;
-    }
-
-    await replyToLine(event.replyToken, [unknownMessage()]);
+    await handlePostback(request, event.replyToken, lineUserId, parsePostback(event.postback.data));
     return;
   }
 
   if (event.type === "message" && event.message.type === "text") {
-    const text = event.message.text.trim();
-    const lowerText = text.toLowerCase();
-
-    if (M01_TEXT_TRIGGERS.has(text) || M01_TEXT_TRIGGERS.has(lowerText)) {
-      await handleM01Start(event.replyToken, lineUserId);
-      return;
-    }
-
-    if (M02_TEXT_TRIGGERS.has(text) || M02_TEXT_TRIGGERS.has(lowerText)) {
-      await handleM02Start(event.replyToken, lineUserId);
-      return;
-    }
-
-    const m01Session = await getSession(lineUserId);
-    const derivedM01Payload = deriveM01PayloadFromText(text, m01Session);
-    if (derivedM01Payload) {
-      await handleM01Postback(request, event.replyToken, lineUserId, derivedM01Payload);
-      return;
-    }
-
-    if (text.startsWith("日記：")) {
-      await handleM02DiaryInput(event.replyToken, lineUserId, text);
-      return;
-    }
-
-    if ((await getM02Session(lineUserId))?.status === "waiting_for_diary") {
-      await recordM02RewardEvent({
-        line_user_id: lineUserId,
-        session_id: (await getM02Session(lineUserId))?.session_id ?? createM02SessionId(lineUserId),
-        event_type: "invalid_input",
-        event_time: new Date().toISOString(),
-      });
-      await replyToLine(event.replyToken, [
-        {
-          type: "text",
-          text: "請用「日記：」開頭輸入今天的生活紀錄。",
-        },
-      ]);
-      return;
-    }
-
-    await replyToLine(event.replyToken, [unknownMessage()]);
+    await handleTextMessage(request, event, lineUserId);
   }
 }
 
@@ -827,26 +829,19 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "/api/line/webhook",
-    service: "line-webhook",
+    modules: ["m01", "m02", "m03", "egg"],
   });
 }
 
 export async function POST(req: NextRequest) {
   const secret = process.env.LINE_CHANNEL_SECRET;
-  if (!secret) {
-    console.error("Missing env: LINE_CHANNEL_SECRET");
-    return NextResponse.json({ ok: false, error: "Missing LINE_CHANNEL_SECRET" }, { status: 500 });
-  }
-
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!token) {
-    console.error("Missing env: LINE_CHANNEL_ACCESS_TOKEN");
-    return NextResponse.json({ ok: false, error: "Missing LINE_CHANNEL_ACCESS_TOKEN" }, { status: 500 });
+  if (!secret || !token) {
+    return NextResponse.json({ ok: false, error: "Missing LINE credentials" }, { status: 500 });
   }
 
   const rawBody = await req.text();
   const signature = req.headers.get("x-line-signature");
-
   if (!verifySignature(rawBody, signature, secret)) {
     return NextResponse.json({ ok: false, error: "Invalid signature" }, { status: 401 });
   }
@@ -854,8 +849,7 @@ export async function POST(req: NextRequest) {
   let body: { events?: LineEvent[] } = {};
   try {
     body = JSON.parse(rawBody) as { events?: LineEvent[] };
-  } catch (error) {
-    console.error("Invalid LINE webhook body", error);
+  } catch {
     return NextResponse.json({ ok: true });
   }
 

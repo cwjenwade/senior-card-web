@@ -5,8 +5,8 @@ import { execFileSync } from "node:child_process";
 const projectRoot = process.cwd();
 const publicDir = path.join(projectRoot, "public");
 const tempDir = path.join(projectRoot, ".tmp");
-const svgPath = path.join(tempDir, "rich-menu-m01-m02.svg");
-const pngPath = path.join(publicDir, "rich-menu-m01-m02.png");
+const svgPath = path.join(tempDir, "rich-menu-m01-m04-temp.svg");
+const pngPath = path.join(publicDir, "rich-menu-m01-m04-temp.png");
 const envPath = path.join(projectRoot, ".env.local");
 
 function loadEnvLocal() {
@@ -33,15 +33,24 @@ function ensureDirs() {
 function createSvg() {
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="2500" height="1686" viewBox="0 0 2500 1686" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1250" height="1686" fill="#F2A65A"/>
-  <rect x="1250" width="1250" height="1686" fill="#7FB069"/>
-  <rect x="1226" y="160" width="48" height="1366" rx="24" fill="rgba(255,255,255,0.45)"/>
-  <text x="625" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">製作</text>
-  <text x="625" y="860" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">長輩圖</text>
-  <text x="625" y="1100" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="64" font-weight="600" fill="#FFF7ED">M01 Greeting Cards</text>
-  <text x="1875" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">寫日記</text>
-  <text x="1875" y="860" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="160" font-weight="800" fill="#FFFFFF">換雞蛋</text>
-  <text x="1875" y="1100" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="64" font-weight="600" fill="#F7FFF0">M02 Daily Diary</text>
+  <rect width="1250" height="843" fill="#F2A65A"/>
+  <rect x="1250" width="1250" height="843" fill="#7FB069"/>
+  <rect y="843" width="1250" height="843" fill="#2A9D8F"/>
+  <rect x="1250" y="843" width="1250" height="843" fill="#D97706"/>
+  <rect x="1218" y="90" width="64" height="1506" rx="32" fill="rgba(255,255,255,0.42)"/>
+  <rect x="120" y="811" width="2260" height="64" rx="32" fill="rgba(255,255,255,0.42)"/>
+  <text x="625" y="300" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">今日</text>
+  <text x="625" y="470" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">長輩圖</text>
+  <text x="625" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#FFF7ED">M01</text>
+  <text x="1875" y="300" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">看圖</text>
+  <text x="1875" y="470" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">寫一句</text>
+  <text x="1875" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#F7FFF0">M02</text>
+  <text x="625" y="1140" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">我的雞蛋</text>
+  <text x="625" y="1310" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">進度</text>
+  <text x="625" y="1480" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#ECFEFF">Progress</text>
+  <text x="1875" y="1140" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">我的</text>
+  <text x="1875" y="1310" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">小檔案</text>
+  <text x="1875" y="1480" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#FFF7ED">M03</text>
 </svg>`;
   writeFileSync(svgPath, svg, "utf8");
 }
@@ -63,7 +72,7 @@ async function createRichMenu(token) {
       height: 1686,
     },
     selected: true,
-    name: "M01 M02 Test Menu",
+    name: "Jenny Temp M01-M04 Menu",
     chatBarText: "服務選單",
     areas: [
       {
@@ -71,13 +80,13 @@ async function createRichMenu(token) {
           x: 0,
           y: 0,
           width: 1250,
-          height: 1686,
+          height: 843,
         },
         action: {
           type: "postback",
-          label: "製作長輩圖",
+          label: "今日長輩圖",
           data: "module=m01&action=start",
-          displayText: "製作長輩圖",
+          displayText: "今日長輩圖",
         },
       },
       {
@@ -85,13 +94,41 @@ async function createRichMenu(token) {
           x: 1250,
           y: 0,
           width: 1250,
-          height: 1686,
+          height: 843,
         },
         action: {
           type: "postback",
-          label: "寫日記換雞蛋",
+          label: "看圖寫一句",
           data: "module=m02&action=start",
-          displayText: "寫日記換雞蛋",
+          displayText: "看圖寫一句",
+        },
+      },
+      {
+        bounds: {
+          x: 0,
+          y: 843,
+          width: 1250,
+          height: 843,
+        },
+        action: {
+          type: "postback",
+          label: "我的雞蛋進度",
+          data: "module=egg&action=start",
+          displayText: "我的雞蛋進度",
+        },
+      },
+      {
+        bounds: {
+          x: 1250,
+          y: 843,
+          width: 1250,
+          height: 843,
+        },
+        action: {
+          type: "postback",
+          label: "我的小檔案",
+          data: "module=m03&action=start",
+          displayText: "我的小檔案",
         },
       },
     ],
@@ -216,9 +253,11 @@ async function main() {
   console.log(`Default rich menu check: ${JSON.stringify(verify)}`);
   console.log("Test checklist:");
   console.log("1. Open the LINE OA chat.");
-  console.log("2. Tap left area: 製作長輩圖 -> should enter M01.");
-  console.log("3. Tap right area: 寫日記換雞蛋 -> should enter M02.");
-  console.log("4. Confirm webhook replies on /api/line/webhook.");
+  console.log("2. Tap top-left: 今日長輩圖 -> should enter M01.");
+  console.log("3. Tap top-right: 看圖寫一句 -> should enter M02.");
+  console.log("4. Tap bottom-left: 我的雞蛋進度 -> should show egg progress.");
+  console.log("5. Tap bottom-right: 我的小檔案 -> should enter M03.");
+  console.log("6. Confirm webhook replies on /api/line/webhook.");
   console.log(`Image generated at: ${pngPath}`);
 }
 
