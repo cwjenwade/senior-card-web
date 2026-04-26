@@ -1,13 +1,14 @@
-# Jenny M01 Admin + LINE Webhook
+# Jenny LINE Services
 
-This app is the Vercel-hosted control panel for `M01 長輩圖`.
+`senior-card-web` is the Next.js / Vercel project for:
 
-It serves two jobs:
+1. the operator dashboard
+2. the LINE webhook service
+3. M01 greeting-card selection
+4. M02 diary-for-eggs activity flow
 
-1. A web dashboard for card library, templates, recommendation rules, and LINE interaction review.
-2. A LINE Messaging API webhook implemented in Next.js / Node.
-
-The elder-facing experience is intended to run inside LINE with buttons and Flex Messages. This website is the operator backend.
+`elderly-ml` stays local as a separate Python / ML project.
+It is not deployed to Vercel, and E02 / E03 do not run inside this Next.js app.
 
 ## Local Development
 
@@ -34,10 +35,6 @@ Required values:
 ```bash
 LINE_CHANNEL_SECRET=your_line_channel_secret
 LINE_CHANNEL_ACCESS_TOKEN=your_line_channel_access_token
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-CRON_SECRET=your_random_cron_secret
 ```
 
 ## LINE Webhook
@@ -60,81 +57,112 @@ In production on Vercel, the route will be:
 https://your-domain/api/line/webhook
 ```
 
-The webhook currently supports:
-
-- Text trigger:
-  - `長輩圖`
-  - `今日長輩圖`
-  - `m01`
-- Button flow:
-  - mood selection
-  - text type selection
-  - visual series selection
-  - return three recommended cards
-  - select / dislike card
-- Temporary diary input pattern:
-  - message starting with `日記：`
-
-## Storage
-
-This app now uses Supabase first for LINE interaction events and diary text.
-
-Expected tables:
+The only valid webhook path is:
 
 ```text
-line_interaction_events
-line_diary_entries
+/api/line/webhook
 ```
 
-If Supabase is unavailable or the tables do not exist yet, the app falls back to server-side JSONL files.
-
-Local development path:
+Do not use:
 
 ```text
-storage/m01_line_events.jsonl
-storage/m01_diary_entries.jsonl
+/api/webhook
 ```
 
-On Vercel, the current fallback uses temporary runtime storage under `/tmp/jenny-m01`.
-That is enough for early testing, but it is not long-term persistent storage. We should move this to durable storage before production rollout.
+## M01
 
-## Supabase Keepalive Cron
+M01 only does:
 
-To reduce the chance of an inactive free-tier project going cold, this app includes a server-side keepalive route:
+- greeting-card production flow
+- mood selection
+- text type selection
+- visual series selection
+- recommending three cards
+- selecting / disliking / refreshing cards
+
+M01 does not:
+
+- write diaries
+- ask for short text
+- ask for free text
+- trigger E02 / E03
+- do semantic analysis
+
+M01 test text triggers:
+
+- `製作長輩圖`
+- `長輩圖`
+- `今日長輩圖`
+- `m01`
+
+M01 postback actions:
+
+- `module=m01&action=start`
+- `module=m01&action=set_mood&mood=...`
+- `module=m01&action=set_text_type&text_type=...`
+- `module=m01&action=set_visual_series&visual_series=...`
+- `module=m01&action=select&card_id=...`
+- `module=m01&action=dislike&card_id=...`
+- `module=m01&action=refresh`
+
+## M02
+
+M02 is the diary-for-eggs activity flow.
+
+M02 only does:
+
+- start diary collection
+- wait for `日記：` input
+- validate length
+- create one diary record per day
+- mark the day as completed
+
+M02 does not:
+
+- generate greeting cards
+- recommend greeting cards
+- trigger E02 / E03
+- do semantic analysis
+
+M02 test text triggers:
+
+- `寫日記換雞蛋`
+- `寫日記`
+- `今日日記`
+- `m02`
+
+M02 diary rules:
+
+- input must start with `日記：`
+- minimum `100` Chinese characters
+- maximum `300` Chinese characters
+- fewer than `100` does not complete the day
+- more than `300` is rejected
+- one completed entry per day
+
+## Current Runtime Storage
+
+M01 and M02 currently use in-memory stores:
+
+- `src/lib/m01-session-store.ts`
+- `src/lib/m02-diary-store.ts`
+
+This is good enough for local testing and early webhook flow checks.
+
+Important:
+
+- Vercel serverless does not guarantee in-memory persistence
+- formal production storage should move to Supabase
+
+## Unknown Text Handling
+
+This app is not a chatbot.
+
+Undefined text is always answered with:
 
 ```text
-/api/cron/supabase-keepalive
+請從下方選單選擇服務。
 ```
-
-It is scheduled in `vercel.json` and is protected by:
-
-```bash
-CRON_SECRET
-```
-
-The route pings these two Supabase tables with a minimal read:
-
-- `line_interaction_events`
-- `line_diary_entries`
-
-Note: this is only a lightweight keepalive pattern. It is not a platform guarantee against Supabase pausing a free project.
-
-## Current M01 Design Boundary
-
-This app can do:
-
-- Manage pre-made greeting cards
-- Manage template presets
-- Configure recommendation weights
-- Reply to LINE webhook events
-- Return Flex Message card recommendations
-
-This app does not yet do:
-
-- Persist LINE selections to a database
-- Persist diary text to formal M02 storage
-- Run E02 / E03 training inside Vercel
-- Make care decisions automatically
 
 ## Build Check
 

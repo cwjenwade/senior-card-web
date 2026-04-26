@@ -35,6 +35,23 @@ export type CardAsset = {
   religiousContent: "none" | "medium" | "high";
 };
 
+type CardRow = {
+  id: string;
+  title: string;
+  text_type: TextType;
+  visual_series: VisualSeries;
+  tone: CardAsset["tone"];
+  caption: string;
+  prompt: string;
+  status: CardAsset["status"];
+  cc0_source: string;
+  image_url: string;
+  font_size: CardAsset["fontSize"];
+  text_density: CardAsset["textDensity"];
+  color_tone: CardAsset["colorTone"];
+  religious_content: CardAsset["religiousContent"];
+};
+
 export const textTypes: TextType[] = ["祝福語", "問安語", "勵志語", "平安語", "健康語", "幽默語", "陪伴語"];
 
 export const visualSeriesOptions: VisualSeries[] = [
@@ -188,20 +205,102 @@ export const cards: CardAsset[] = [
   },
 ];
 
-export function getActiveCards() {
-  return cards.filter((card) => card.status === "active");
+const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
+
+function resolveSupabaseRestUrl() {
+  const url = process.env.SUPABASE_URL;
+  if (!url) return null;
+  if (url.includes("/rest/v1")) {
+    return url.replace(/\/+$/, "");
+  }
+  return `${url.replace(/\/+$/, "")}/rest/v1`;
 }
 
-export function getCardById(cardId: string) {
-  return cards.find((card) => card.id === cardId);
+function supabaseHeaders() {
+  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!apiKey) return null;
+  return {
+    apikey: apiKey,
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
 }
 
-export function recommendCards(options: {
+function canUseSupabaseCards() {
+  return Boolean(resolveSupabaseRestUrl() && supabaseHeaders());
+}
+
+function mapCardRow(row: CardRow): CardAsset {
+  return {
+    id: row.id,
+    title: row.title,
+    textType: row.text_type,
+    visualSeries: row.visual_series,
+    tone: row.tone,
+    caption: row.caption,
+    prompt: row.prompt,
+    status: row.status,
+    cc0Source: row.cc0_source,
+    imageUrl: row.image_url,
+    fontSize: row.font_size,
+    textDensity: row.text_density,
+    colorTone: row.color_tone,
+    religiousContent: row.religious_content,
+  };
+}
+
+async function supabaseReadCards() {
+  const baseUrl = resolveSupabaseRestUrl();
+  const headers = supabaseHeaders();
+  if (!baseUrl || !headers) {
+    throw new Error("Supabase env is not configured");
+  }
+
+  const response = await fetch(`${baseUrl}/${CARD_TABLE}?select=*&order=id.asc`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Supabase card read failed for ${CARD_TABLE}: ${response.status} ${text}`);
+  }
+
+  const rows = (await response.json()) as CardRow[];
+  return rows.map(mapCardRow);
+}
+
+export async function listCards() {
+  if (canUseSupabaseCards()) {
+    try {
+      const liveCards = await supabaseReadCards();
+      if (liveCards.length > 0) {
+        return liveCards;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  return cards;
+}
+
+export async function getActiveCards() {
+  const allCards = await listCards();
+  return allCards.filter((card) => card.status === "active");
+}
+
+export async function getCardById(cardId: string) {
+  const allCards = await listCards();
+  return allCards.find((card) => card.id === cardId);
+}
+
+export async function recommendCards(options: {
   textType: TextType;
   visualSeries: VisualSeries;
   excludeCardIds?: string[];
 }) {
-  const pool = getActiveCards().filter((card) => !(options.excludeCardIds ?? []).includes(card.id));
+  const pool = (await getActiveCards()).filter((card) => !(options.excludeCardIds ?? []).includes(card.id));
   const picks: CardAsset[] = [];
   const used = new Set<string>();
 
