@@ -10,6 +10,15 @@ import {
   type TextType,
   type VisualSeries,
 } from "@/lib/m01-cards";
+import {
+  appendDiaryEntry,
+  appendInteractionEvent,
+  createDiaryRecord,
+  createEventRecord,
+  findLatestSelection,
+  readDiaryEntries,
+  readInteractionEvents,
+} from "@/lib/m01-storage";
 
 export const runtime = "nodejs";
 
@@ -36,6 +45,7 @@ function parsePostback(data: string) {
   const params = new URLSearchParams(data);
   return {
     action: params.get("action") ?? "",
+    sessionId: params.get("sessionId") ?? "",
     mood: params.get("mood") ?? "",
     textType: params.get("textType") ?? "",
     visualSeries: params.get("visualSeries") ?? "",
@@ -76,7 +86,11 @@ async function replyToLine(replyToken: string, messages: unknown[]) {
   }
 }
 
-function moodQuickReply() {
+function createSessionId(userId: string) {
+  return `S-${userId}-${Date.now()}`;
+}
+
+function moodQuickReply(sessionId: string) {
   const moods = ["開心", "平靜", "累", "煩", "寂寞", "沮喪", "沒特別感覺"];
   return {
     items: moods.map((mood) => ({
@@ -84,35 +98,35 @@ function moodQuickReply() {
       action: {
         type: "postback",
         label: mood,
-        data: `action=mood&mood=${encodeURIComponent(mood)}`,
+        data: `action=mood&sessionId=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}`,
         displayText: mood,
       },
     })),
   };
 }
 
-function textTypeQuickReply(mood: string) {
+function textTypeQuickReply(sessionId: string, mood: string) {
   return {
     items: textTypes.map((textType) => ({
       type: "action",
       action: {
         type: "postback",
         label: textType,
-        data: `action=textType&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}`,
+        data: `action=textType&sessionId=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}`,
         displayText: textType,
       },
     })),
   };
 }
 
-function visualSeriesQuickReply(mood: string, textType: string) {
+function visualSeriesQuickReply(sessionId: string, mood: string, textType: string) {
   return {
     items: visualSeriesOptions.map((visualSeries) => ({
       type: "action",
       action: {
         type: "postback",
         label: visualSeries,
-        data: `action=visualSeries&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}&visualSeries=${encodeURIComponent(visualSeries)}`,
+        data: `action=visualSeries&sessionId=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}&visualSeries=${encodeURIComponent(visualSeries)}`,
         displayText: visualSeries,
       },
     })),
@@ -120,6 +134,7 @@ function visualSeriesQuickReply(mood: string, textType: string) {
 }
 
 function cardCarousel(options: {
+  sessionId: string;
   mood: string;
   textType: TextType;
   visualSeries: VisualSeries;
@@ -186,7 +201,7 @@ function cardCarousel(options: {
               action: {
                 type: "postback",
                 label: "選這張",
-                data: `action=selectCard&mood=${encodeURIComponent(options.mood)}&textType=${encodeURIComponent(options.textType)}&visualSeries=${encodeURIComponent(options.visualSeries)}&cardId=${encodeURIComponent(card.id)}`,
+                data: `action=selectCard&sessionId=${encodeURIComponent(options.sessionId)}&mood=${encodeURIComponent(options.mood)}&textType=${encodeURIComponent(options.textType)}&visualSeries=${encodeURIComponent(options.visualSeries)}&cardId=${encodeURIComponent(card.id)}`,
                 displayText: `選這張 ${card.title}`,
               },
             },
@@ -197,7 +212,7 @@ function cardCarousel(options: {
               action: {
                 type: "postback",
                 label: "不喜歡這張",
-                data: `action=dislikeCard&mood=${encodeURIComponent(options.mood)}&textType=${encodeURIComponent(options.textType)}&visualSeries=${encodeURIComponent(options.visualSeries)}&cardId=${encodeURIComponent(card.id)}`,
+                data: `action=dislikeCard&sessionId=${encodeURIComponent(options.sessionId)}&mood=${encodeURIComponent(options.mood)}&textType=${encodeURIComponent(options.textType)}&visualSeries=${encodeURIComponent(options.visualSeries)}&cardId=${encodeURIComponent(card.id)}`,
                 displayText: `不喜歡 ${card.title}`,
               },
             },
@@ -209,7 +224,7 @@ function cardCarousel(options: {
   };
 }
 
-function reshuffleQuickReply(mood: string, textType: TextType, visualSeries: VisualSeries, shownIds: string) {
+function reshuffleQuickReply(sessionId: string, mood: string, textType: TextType, visualSeries: VisualSeries, shownIds: string) {
   return {
     items: [
       {
@@ -217,7 +232,7 @@ function reshuffleQuickReply(mood: string, textType: TextType, visualSeries: Vis
         action: {
           type: "postback",
           label: "換一組",
-          data: `action=reshuffle&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}&visualSeries=${encodeURIComponent(visualSeries)}&exclude=${encodeURIComponent(shownIds)}`,
+          data: `action=reshuffle&sessionId=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}&textType=${encodeURIComponent(textType)}&visualSeries=${encodeURIComponent(visualSeries)}&exclude=${encodeURIComponent(shownIds)}`,
           displayText: "換一組",
         },
       },
@@ -226,7 +241,7 @@ function reshuffleQuickReply(mood: string, textType: TextType, visualSeries: Vis
         action: {
           type: "postback",
           label: "重選文字",
-          data: `action=mood&mood=${encodeURIComponent(mood)}`,
+          data: `action=mood&sessionId=${encodeURIComponent(sessionId)}&mood=${encodeURIComponent(mood)}`,
           displayText: "重選文字",
         },
       },
@@ -243,6 +258,7 @@ function helpMessage() {
 
 async function handleEvent(event: LineEvent) {
   if (!("replyToken" in event) || !event.replyToken) return;
+  const userId = event.source?.userId ?? "anonymous_user";
 
   if (event.type === "follow") {
     await replyToLine(event.replyToken, [
@@ -258,21 +274,54 @@ async function handleEvent(event: LineEvent) {
     const text = event.message.text.trim();
 
     if (text === "長輩圖" || text === "今日長輩圖" || text.toLowerCase() === "m01") {
+      const sessionId = createSessionId(userId);
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId,
+          eventType: "keyword_triggered",
+          payload: { keyword: text },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
           text: "今天比較像哪一種心情？這個只做日記脈絡紀錄，不會拿來改變推薦排序。",
-          quickReply: moodQuickReply(),
+          quickReply: moodQuickReply(sessionId),
         },
       ]);
       return;
     }
 
     if (text.startsWith("日記：")) {
+      const latestSelection = await findLatestSelection(userId);
+      const entryText = text.replace(/^日記：/, "").trim();
+      const diaryRecord = createDiaryRecord({
+        userId,
+        sessionId: latestSelection?.sessionId ?? createSessionId(userId),
+        linkedCardId: latestSelection?.cardId ?? null,
+        moodToday: latestSelection?.moodToday ?? "",
+        textTypePreference: latestSelection?.textType ?? "",
+        visualSeriesPreference: latestSelection?.visualSeries ?? "",
+        entryText,
+      });
+      await appendDiaryEntry(diaryRecord);
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId: diaryRecord.sessionId,
+          eventType: "used_for_diary",
+          cardId: diaryRecord.linkedCardId,
+          moodToday: diaryRecord.moodToday,
+          textType: diaryRecord.textTypePreference,
+          visualSeries: diaryRecord.visualSeriesPreference,
+          payload: { diaryId: diaryRecord.id, length: entryText.length },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
-          text: "收到，今天的日記先幫你記下來了。之後我們會把這段接到正式的 M02 儲存流程。",
+          text: "收到，今天的日記已經幫你記下來了。",
         },
       ]);
       return;
@@ -286,22 +335,41 @@ async function handleEvent(event: LineEvent) {
     const payload = parsePostback(event.postback.data);
 
     if (payload.action === "mood") {
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId: payload.sessionId,
+          eventType: "mood_selected",
+          moodToday: payload.mood,
+          payload: { source: "postback" },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
           text: `今天心情先記成「${payload.mood}」。接著想看哪一種話？`,
-          quickReply: textTypeQuickReply(payload.mood),
+          quickReply: textTypeQuickReply(payload.sessionId, payload.mood),
         },
       ]);
       return;
     }
 
     if (payload.action === "textType") {
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId: payload.sessionId,
+          eventType: "text_type_selected",
+          moodToday: payload.mood,
+          textType: payload.textType,
+          payload: { source: "postback" },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
           text: `你選了「${payload.textType}」。今天想看哪一種圖？`,
-          quickReply: visualSeriesQuickReply(payload.mood, payload.textType),
+          quickReply: visualSeriesQuickReply(payload.sessionId, payload.mood, payload.textType),
         },
       ]);
       return;
@@ -309,12 +377,53 @@ async function handleEvent(event: LineEvent) {
 
     if (payload.action === "visualSeries" || payload.action === "reshuffle") {
       const excludeCardIds = payload.exclude ? payload.exclude.split(",").filter(Boolean) : [];
+      if (payload.action === "visualSeries") {
+        await appendInteractionEvent(
+          createEventRecord({
+            userId,
+            sessionId: payload.sessionId,
+            eventType: "visual_series_selected",
+            moodToday: payload.mood,
+            textType: payload.textType,
+            visualSeries: payload.visualSeries,
+            payload: { source: "postback" },
+          }),
+        );
+      } else {
+        await appendInteractionEvent(
+          createEventRecord({
+            userId,
+            sessionId: payload.sessionId,
+            eventType: "reshuffled",
+            moodToday: payload.mood,
+            textType: payload.textType,
+            visualSeries: payload.visualSeries,
+            payload: { excludeCardIds },
+          }),
+        );
+      }
       const carousel = cardCarousel({
+        sessionId: payload.sessionId,
         mood: payload.mood,
         textType: payload.textType as TextType,
         visualSeries: payload.visualSeries as VisualSeries,
         excludeCardIds,
       });
+      const shownIds = carousel.shownIds.split(",").filter(Boolean);
+      for (const cardId of shownIds) {
+        await appendInteractionEvent(
+          createEventRecord({
+            userId,
+            sessionId: payload.sessionId,
+            eventType: "shown",
+            cardId,
+            moodToday: payload.mood,
+            textType: payload.textType,
+            visualSeries: payload.visualSeries,
+            payload: { shownIds },
+          }),
+        );
+      }
 
       await replyToLine(event.replyToken, [
         {
@@ -326,6 +435,7 @@ async function handleEvent(event: LineEvent) {
           type: "text",
           text: "你可以直接選一張，也可以換一組。",
           quickReply: reshuffleQuickReply(
+            payload.sessionId,
             payload.mood,
             payload.textType as TextType,
             payload.visualSeries as VisualSeries,
@@ -338,6 +448,18 @@ async function handleEvent(event: LineEvent) {
 
     if (payload.action === "selectCard") {
       const card = getCardById(payload.cardId);
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId: payload.sessionId,
+          eventType: "selected",
+          cardId: payload.cardId,
+          moodToday: payload.mood,
+          textType: payload.textType,
+          visualSeries: payload.visualSeries,
+          payload: { cardTitle: card?.title ?? "" },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
@@ -351,6 +473,18 @@ async function handleEvent(event: LineEvent) {
 
     if (payload.action === "dislikeCard") {
       const card = getCardById(payload.cardId);
+      await appendInteractionEvent(
+        createEventRecord({
+          userId,
+          sessionId: payload.sessionId,
+          eventType: "disliked",
+          cardId: payload.cardId,
+          moodToday: payload.mood,
+          textType: payload.textType,
+          visualSeries: payload.visualSeries,
+          payload: { cardTitle: card?.title ?? "" },
+        }),
+      );
       await replyToLine(event.replyToken, [
         {
           type: "text",
@@ -363,10 +497,14 @@ async function handleEvent(event: LineEvent) {
 }
 
 export async function GET() {
+  const events = await readInteractionEvents();
+  const diaries = await readDiaryEntries();
   return NextResponse.json({
     ok: true,
     route: "/api/line/webhook",
     cards: cards.length,
+    interactionEvents: events.length,
+    diaryEntries: diaries.length,
     message: "LINE webhook endpoint is ready.",
   });
 }

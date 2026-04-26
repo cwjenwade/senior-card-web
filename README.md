@@ -71,6 +71,20 @@ The webhook currently supports:
 - Temporary diary input pattern:
   - message starting with `日記：`
 
+## Local Storage
+
+For now, LINE interaction events and diary text are written to server-side JSONL files.
+
+Local development path:
+
+```text
+storage/m01_line_events.jsonl
+storage/m01_diary_entries.jsonl
+```
+
+On Vercel, the current fallback uses temporary runtime storage under `/tmp/jenny-m01`.
+That is enough for early testing, but it is not long-term persistent storage. We should move this to durable storage before production rollout.
+
 ## Current M01 Design Boundary
 
 This app can do:
