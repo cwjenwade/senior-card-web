@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { getCardFilterOptions, listCardsForAdmin } from "@/lib/m01-cards";
 
+export const dynamic = "force-dynamic";
+
 type SearchParams = Promise<{
   style_main?: string;
   tone?: string;

@@ -45,12 +45,12 @@ function createSvg() {
   <text x="1875" y="300" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">看圖</text>
   <text x="1875" y="470" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">寫一句</text>
   <text x="1875" y="640" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#F7FFF0">M02</text>
-  <text x="625" y="1140" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">我的雞蛋</text>
-  <text x="625" y="1310" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">進度</text>
-  <text x="625" y="1480" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#ECFEFF">Progress</text>
-  <text x="1875" y="1140" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">我的</text>
-  <text x="1875" y="1310" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">小檔案</text>
-  <text x="1875" y="1480" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#FFF7ED">M03</text>
+  <text x="625" y="1140" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">關懷與</text>
+  <text x="625" y="1310" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF">配對</text>
+  <text x="625" y="1480" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#ECFEFF">M03</text>
+  <text x="1875" y="1100" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="106" font-weight="800" fill="#FFFFFF">最新活動</text>
+  <text x="1875" y="1260" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="106" font-weight="800" fill="#FFFFFF">與政策</text>
+  <text x="1875" y="1450" text-anchor="middle" font-family="PingFang TC, Noto Sans TC, Arial, sans-serif" font-size="52" font-weight="600" fill="#FFF7ED">M04</text>
 </svg>`;
   writeFileSync(svgPath, svg, "utf8");
 }
@@ -72,7 +72,7 @@ async function createRichMenu(token) {
       height: 1686,
     },
     selected: true,
-    name: "Jenny Temp M01-M04 Menu",
+    name: "Jenny Redefined M01-M04 Menu",
     chatBarText: "服務選單",
     areas: [
       {
@@ -112,9 +112,9 @@ async function createRichMenu(token) {
         },
         action: {
           type: "postback",
-          label: "我的雞蛋進度",
-          data: "module=egg&action=start",
-          displayText: "我的雞蛋進度",
+          label: "關懷與配對",
+          data: "module=m03&action=start",
+          displayText: "關懷與配對",
         },
       },
       {
@@ -126,9 +126,9 @@ async function createRichMenu(token) {
         },
         action: {
           type: "postback",
-          label: "我的小檔案",
-          data: "module=m03&action=start",
-          displayText: "我的小檔案",
+          label: "最新活動與政策",
+          data: "module=m04&action=start",
+          displayText: "最新活動與政策",
         },
       },
     ],
@@ -255,8 +255,8 @@ async function main() {
   console.log("1. Open the LINE OA chat.");
   console.log("2. Tap top-left: 今日長輩圖 -> should enter M01.");
   console.log("3. Tap top-right: 看圖寫一句 -> should enter M02.");
-  console.log("4. Tap bottom-left: 我的雞蛋進度 -> should show egg progress.");
-  console.log("5. Tap bottom-right: 我的小檔案 -> should enter M03.");
+  console.log("4. Tap bottom-left: 關懷與配對 -> should enter M03.");
+  console.log("5. Tap bottom-right: 最新活動與政策 -> should enter M04.");
   console.log("6. Confirm webhook replies on /api/line/webhook.");
   console.log(`Image generated at: ${pngPath}`);
 }

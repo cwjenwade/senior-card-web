@@ -3,10 +3,12 @@ import { canUseSupabase, supabaseInsert, supabaseSelect } from "@/lib/supabase-r
 type M03Session = {
   line_user_id: string;
   session_id: string;
-  step: "idle" | "waiting_for_name" | "waiting_for_cards" | "waiting_for_partner";
+  step: "idle" | "waiting_for_name" | "waiting_for_reminder" | "waiting_for_ambassador" | "waiting_for_care" | "waiting_for_chat";
   display_name: string;
-  liked_card_ids: string[];
-  wants_partner: string;
+  reminder_opt_in: string;
+  care_ambassador_opt_in: string;
+  wants_care: string;
+  chat_match_opt_in: string;
   updated_at: string;
 };
 
@@ -30,8 +32,10 @@ function createDefault(lineUserId: string): M03Session {
     session_id: `m03-${lineUserId}-${Date.now()}`,
     step: "idle",
     display_name: "",
-    liked_card_ids: [],
-    wants_partner: "",
+    reminder_opt_in: "",
+    care_ambassador_opt_in: "",
+    wants_care: "",
+    chat_match_opt_in: "",
     updated_at: nowIso(),
   };
 }
@@ -49,8 +53,10 @@ export async function getM03Session(lineUserId: string) {
         session_id: row.session_id,
         step: String(row.payload?.step ?? "idle") as M03Session["step"],
         display_name: String(row.payload?.display_name ?? ""),
-        liked_card_ids: Array.isArray(row.payload?.liked_card_ids) ? row.payload!.liked_card_ids.map((item) => String(item)) : [],
-        wants_partner: String(row.payload?.wants_partner ?? ""),
+        reminder_opt_in: String(row.payload?.reminder_opt_in ?? ""),
+        care_ambassador_opt_in: String(row.payload?.care_ambassador_opt_in ?? ""),
+        wants_care: String(row.payload?.wants_care ?? ""),
+        chat_match_opt_in: String(row.payload?.chat_match_opt_in ?? ""),
         updated_at: row.created_at,
       } satisfies M03Session;
     }
@@ -86,8 +92,10 @@ export async function updateM03Session(lineUserId: string, patch: Partial<M03Ses
             module: "m03",
             step: next.step,
             display_name: next.display_name,
-            liked_card_ids: next.liked_card_ids,
-            wants_partner: next.wants_partner,
+            reminder_opt_in: next.reminder_opt_in,
+            care_ambassador_opt_in: next.care_ambassador_opt_in,
+            wants_care: next.wants_care,
+            chat_match_opt_in: next.chat_match_opt_in,
           },
           created_at: next.updated_at,
         },

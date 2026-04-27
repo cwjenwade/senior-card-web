@@ -20,7 +20,7 @@ type M02DiaryEntry = {
 type M02RewardEvent = {
   line_user_id: string;
   session_id: string;
-  event_type: "started" | "diary_submitted" | "completed" | "duplicate_blocked" | "invalid_input" | "too_short" | "too_long";
+  event_type: "started" | "diary_submitted" | "completed" | "duplicate_blocked" | "invalid_input" | "too_short" | "too_long" | "reminder_18" | "reminder_20";
   event_time: string;
 };
 
@@ -303,5 +303,18 @@ export async function recordM02RewardEvent(payload: M02RewardEvent) {
 }
 
 export function countCjkCharacters(text: string) {
-  return (text.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) ?? []).length;
+  return Array.from(text.replace(/\s+/g, "")).length;
+}
+
+export async function hasReminderBeenSent(lineUserId: string, date: string, hour: 18 | 20) {
+  if (canUseSupabase()) {
+    const rows = await supabaseRead<SupabaseEventRow>(
+      INTERACTIONS_TABLE,
+      `select=id&user_id=eq.${encodeURIComponent(lineUserId)}&event_type=eq.m02_reminder_${hour}&created_at=gte.${encodeURIComponent(startOfTaipeiDay(date))}&created_at=lt.${encodeURIComponent(nextTaipeiDay(date))}&limit=1`,
+    );
+    return rows.length > 0;
+  }
+
+  const events = rewardEvents.get(lineUserId) ?? [];
+  return events.some((event) => event.event_type === `reminder_${hour}` && event.event_time.startsWith(date));
 }

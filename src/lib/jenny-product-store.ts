@@ -6,6 +6,11 @@ export type ParticipantRow = {
   display_name: string;
   age_band: string;
   wants_partner: boolean;
+  reminder_opt_in: boolean;
+  care_ambassador_opt_in: boolean;
+  wants_care: boolean;
+  chat_match_opt_in: boolean;
+  m03_completed_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -83,7 +88,24 @@ export type PartnerLinkRow = {
   participant_id: string;
   partner_participant_id: string;
   status: string;
+  link_type?: string;
+  match_status?: string;
+  chat_enabled?: boolean;
+  updated_at?: string;
   created_at: string;
+};
+
+export type CommunityInfoRow = {
+  info_id: string;
+  title: string;
+  category: "policy" | "neighborhood" | "temple" | "community";
+  description: string;
+  event_date?: string | null;
+  location: string;
+  contact: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type PartnerPromptQueueRow = {
@@ -119,6 +141,7 @@ const TABLES = {
   diaryEntries: "diary_entries",
   eggProgress: "egg_progress",
   partnerLinks: "partner_links",
+  communityInfo: "community_info",
   partnerPromptQueue: "partner_prompt_queue",
   internalReviewQueue: "internal_review_queue",
 } as const;
@@ -200,6 +223,11 @@ export async function upsertParticipant(participantId: string, patch: Partial<Pa
     display_name: patch.display_name ?? existing?.display_name ?? participantId,
     age_band: patch.age_band ?? existing?.age_band ?? "",
     wants_partner: patch.wants_partner ?? existing?.wants_partner ?? false,
+    reminder_opt_in: patch.reminder_opt_in ?? existing?.reminder_opt_in ?? false,
+    care_ambassador_opt_in: patch.care_ambassador_opt_in ?? existing?.care_ambassador_opt_in ?? false,
+    wants_care: patch.wants_care ?? existing?.wants_care ?? false,
+    chat_match_opt_in: patch.chat_match_opt_in ?? existing?.chat_match_opt_in ?? false,
+    m03_completed_at: patch.m03_completed_at ?? existing?.m03_completed_at ?? null,
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
@@ -310,13 +338,50 @@ export async function getEggProgress(participantId: string, today?: string) {
 }
 
 export async function upsertPartnerLink(row: PartnerLinkRow) {
-  await upsertRows(TABLES.partnerLinks, [row], "id");
-  return row;
+  const next: PartnerLinkRow = {
+    ...row,
+    link_type: row.link_type ?? "care",
+    match_status: row.match_status ?? "waiting_match",
+    chat_enabled: row.chat_enabled ?? false,
+    updated_at: row.updated_at ?? nowIso(),
+  };
+  await upsertRows(TABLES.partnerLinks, [next], "id");
+  return next;
 }
 
 export async function getPartnerLink(participantId: string) {
   const rows = await readRows<PartnerLinkRow>(TABLES.partnerLinks);
   return rows.find((row) => row.participant_id === participantId && row.status !== "closed") ?? null;
+}
+
+export async function listPartnerLinks(participantId?: string) {
+  const rows = await readRows<PartnerLinkRow>(TABLES.partnerLinks);
+  const filtered = participantId ? rows.filter((row) => row.participant_id === participantId) : rows;
+  return filtered.sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at));
+}
+
+export async function listCommunityInfo(filters?: {
+  category?: string;
+  status?: string;
+}) {
+  const rows = await readRows<CommunityInfoRow>(TABLES.communityInfo);
+  return rows
+    .filter((row) => {
+      if (filters?.category && row.category !== filters.category) return false;
+      if (filters?.status && row.status !== filters.status) return false;
+      return true;
+    })
+    .sort((a, b) => (b.event_date ?? "").localeCompare(a.event_date ?? "") || b.updated_at.localeCompare(a.updated_at));
+}
+
+export async function getCommunityInfo(infoId: string) {
+  const rows = await readRows<CommunityInfoRow>(TABLES.communityInfo);
+  return rows.find((row) => row.info_id === infoId) ?? null;
+}
+
+export async function upsertCommunityInfo(row: CommunityInfoRow) {
+  await upsertRows(TABLES.communityInfo, [{ ...row, updated_at: row.updated_at || nowIso(), created_at: row.created_at || nowIso() }], "info_id");
+  return row;
 }
 
 export async function listPartnerPromptQueue() {

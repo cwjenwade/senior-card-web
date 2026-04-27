@@ -29,15 +29,20 @@ export async function hasTable(table: string) {
   const headers = supabaseHeaders();
   if (!baseUrl || !headers) return false;
 
-  const response = await fetch(`${baseUrl}/${table}?select=*&limit=1`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${baseUrl}/${table}?select=*&limit=1`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
 
-  const exists = response.ok;
-  tableExistenceCache.set(table, exists);
-  return exists;
+    const exists = response.ok;
+    tableExistenceCache.set(table, exists);
+    return exists;
+  } catch {
+    tableExistenceCache.set(table, false);
+    return false;
+  }
 }
 
 export async function supabaseSelect<T>(table: string, query: string) {
@@ -45,11 +50,16 @@ export async function supabaseSelect<T>(table: string, query: string) {
   const headers = supabaseHeaders();
   if (!baseUrl || !headers) return [] as T[];
 
-  const response = await fetch(`${baseUrl}/${table}?${query}`, {
-    method: "GET",
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/${table}?${query}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+  } catch {
+    return [] as T[];
+  }
 
   if (!response.ok) {
     return [] as T[];
@@ -63,17 +73,21 @@ export async function supabaseInsert(table: string, rows: Record<string, unknown
   const headers = supabaseHeaders();
   if (!baseUrl || !headers) return false;
 
-  const response = await fetch(`${baseUrl}/${table}`, {
-    method: "POST",
-    headers: {
-      ...headers,
-      Prefer: upsert ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
-    },
-    body: JSON.stringify(rows),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${baseUrl}/${table}`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        Prefer: upsert ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
+      },
+      body: JSON.stringify(rows),
+      cache: "no-store",
+    });
 
-  return response.ok;
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function supabasePatch(table: string, filterQuery: string, patch: Record<string, unknown>) {
@@ -81,15 +95,19 @@ export async function supabasePatch(table: string, filterQuery: string, patch: R
   const headers = supabaseHeaders();
   if (!baseUrl || !headers) return false;
 
-  const response = await fetch(`${baseUrl}/${table}?${filterQuery}`, {
-    method: "PATCH",
-    headers: {
-      ...headers,
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify(patch),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(`${baseUrl}/${table}?${filterQuery}`, {
+      method: "PATCH",
+      headers: {
+        ...headers,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify(patch),
+      cache: "no-store",
+    });
 
-  return response.ok;
+    return response.ok;
+  } catch {
+    return false;
+  }
 }

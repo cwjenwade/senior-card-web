@@ -1,4 +1,4 @@
-import { getEggProgress, listInternalReviewQueue, listKnownTables, listParticipants, listPartnerPromptQueue } from "@/lib/jenny-product-store";
+import { getEggProgress, listCommunityInfo, listInternalReviewQueue, listKnownTables, listParticipants, listPartnerPromptQueue } from "@/lib/jenny-product-store";
 import { listCards } from "@/lib/m01-cards";
 import { canUseSupabase } from "@/lib/supabase-rest";
 
@@ -33,6 +33,7 @@ export async function runSystemCheck() {
   const participants = await listParticipants();
   const partnerQueue = await listPartnerPromptQueue();
   const internalQueue = await listInternalReviewQueue();
+  const infoRows = await listCommunityInfo({ status: "active" });
   const richMenu = await fetchRichMenuStatus();
 
   const today = new Intl.DateTimeFormat("en-CA", {
@@ -64,20 +65,20 @@ export async function runSystemCheck() {
       detail: "Daily duplicate protection and 14-day egg progress recalculation are implemented.",
     },
     {
-      title: "M03 simple onboarding",
+      title: "M03 care and matching settings",
       status: "completed",
-      detail: "Name, 3 liked cards, and partner preference onboarding flow is implemented through LINE.",
+      detail: "Name, reminder, care ambassador, cared-for, and chat matching settings are available through LINE.",
     },
     {
-      title: "M04 queue creation and listability",
-      status: "completed",
-      detail: `Current queue rows: partner=${partnerQueue.length}, internal=${internalQueue.length}.`,
+      title: "M04 info service",
+      status: infoRows.length > 0 ? "completed" : "partial",
+      detail: infoRows.length > 0 ? `Active information rows: ${infoRows.length}.` : "Info service table exists but does not yet contain active information rows.",
     },
     {
       title: "rich menu binding",
       status: richMenu?.richMenuId ? "partial" : "manual",
       detail: richMenu?.richMenuId
-        ? `Default rich menu is bound as ${richMenu.richMenuId}. Rebuild is still a manual LINE API step.`
+        ? `Default rich menu is bound as ${richMenu.richMenuId}. Verify the four visible labels in the LINE client.`
         : "No default rich menu detected from LINE API.",
     },
     {
@@ -116,5 +117,6 @@ export async function runSystemCheck() {
       partner: partnerQueue,
       internal: internalQueue,
     },
+    infoRows,
   };
 }

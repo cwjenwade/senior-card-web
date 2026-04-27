@@ -4,10 +4,10 @@
 
 Product shape:
 
-- `M01` 今日長輩圖
-- `M02` 看圖寫一句 / 寫日記換雞蛋
-- `M03` 我的簡單設定
-- `M04` 夥伴提醒與人工審核 queue
+- `M01` 長輩圖上傳、標記、推薦、選圖記錄
+- `M02` 日記輸入、14 天雞蛋進度、50 字門檻、18:00 / 20:00 提醒
+- `M03` 關懷大使、被關懷設定、好友配對與聊天基礎
+- `M04` 政策、鄰里活動、宮廟與社區資訊
 
 `elderly-ml` remains a separate local Python prototype for `E02` and `E03` batch analysis. The web app does not reimplement the ML stack in Next.js. Instead, the web app now provides the product-facing storage shape that can receive those analysis outputs.
 
@@ -21,6 +21,8 @@ npm run dev
 Open:
 
 - Dashboard: `http://localhost:3000`
+- Card admin: `http://localhost:3000/cards`
+- Info admin: `http://localhost:3000/info-admin`
 - LINE webhook health: `http://localhost:3000/api/line/webhook`
 - System check JSON: `http://localhost:3000/api/admin/system-check`
 
@@ -47,10 +49,13 @@ APP_BASE_URL=
 
 - `/`
 - `/cards`
+- `/info-admin`
 - `/api/line/webhook`
 - `/api/m01/cards/[cardId]/image`
+- `/api/cron/m02-reminders`
 - `/api/cron/supabase-keepalive`
 - `/api/admin/cards`
+- `/api/admin/info`
 - `/api/admin/system-check`
 - `/api/admin/queues/run`
 - `/api/admin/queues/update`
@@ -67,9 +72,16 @@ Current v1 behavior:
 - read card metadata and `image_url` from `card_catalog`
 - allow one daily main-card selection
 - allow one refresh per day
+- allow `favorite` recording
 - write recommendation snapshots to `daily_card_recommendations`
-- write view / refresh / select actions to `card_interactions`
+- write `view` / `refresh` / `select` / `favorite` / `diary_written` actions to `card_interactions`
 - create a guided prompt for M02 after selection
+
+Admin:
+
+- `/cards`
+- create / edit / preview / active / inactive
+- filter by `style_main` / `tone` / `status`
 
 Triggers:
 
@@ -89,7 +101,7 @@ Current v1 behavior:
 
 - enter from rich menu, trigger text, or after M01 selection
 - accept free text while the M02 session is waiting
-- minimum `20` Chinese characters
+- minimum `50` characters
 - maximum `300` Chinese characters
 - one valid completion per day
 - duplicate completion is blocked and not re-counted
@@ -98,6 +110,7 @@ Current v1 behavior:
 - preserve `linked_card_id`
 - update `egg_progress`
 - mark analysis state as `pending`
+- support a reminder batch route at `18:00` and `20:00` Taipei time when M03 reminder is enabled
 
 Triggers:
 
@@ -110,56 +123,50 @@ Postback:
 
 - `module=m02&action=start`
 
-## M03 我的簡單設定
+## M03 關懷與配對
 
 Current v1 behavior:
 
 - enter from rich menu or text trigger
-- if not configured, run a 3-step onboarding flow:
+- if not configured, run a lightweight setting flow:
   1. ask for display name
-  2. ask the elder to select 3 liked cards
-  3. ask whether a fixed partner reminder is welcome
-- liked-card selection also reads from `card_catalog.image_url`
-- write results to `participants`, `card_preferences`, and optional `partner_links`
-- if already configured, show a compact summary
+  2. ask whether diary reminders are welcome
+  3. ask whether the elder wants to be a care ambassador
+  4. ask whether the elder wants to be cared for
+  5. ask whether the elder wants to join chat matching
+- write results to `participants` and placeholder `partner_links`
+- if already configured, show a compact summary and allow restart
 
 Triggers:
 
-- `我的小檔案`
-- `我的簡單設定`
+- `關懷與配對`
+- `關懷大使`
+- `好友配對`
 - `m03`
 
 Postbacks:
 
 - `module=m03&action=start`
-- `module=m03&action=like_card&card_id=...`
-- `module=m03&action=set_partner&partner=yes|no`
+- `module=m03&action=restart`
+- `module=m03&action=set_option&setting=...&value=yes|no`
 
-## M04 夥伴提醒與人工審核
+## M04 最新活動與政策
 
 Current v1 behavior:
 
-- no external notifications
-- only queue generation and queue visualization
-- queue types:
-  - `partner_prompt_queue`
-  - `internal_review_queue`
-- queue items are visible on `/`
-- queue status can be updated through the dashboard
+- `M04` is now an information service module
+- LINE users can read recent:
+  - policy
+  - neighborhood
+  - temple
+  - community
+- admin content management is available at `/info-admin`
+- category filtering and status editing are included
 
-Partner prompt example conditions:
+Internal queue note:
 
-- silence gap
-- rising priority in recent entries
-- semantic risk trend increase
-- low-mood cluster
-
-Internal review example conditions:
-
-- `priority_score >= 4`
-- `manual_review = true`
-- `semantic_risk_score >= 4`
-- longer silence escalation
+- `partner_prompt_queue` and `internal_review_queue` are still kept as internal routing mechanisms
+- they are no longer presented as the M04 front-end module
 
 ## Storage Model
 
@@ -178,6 +185,7 @@ Current product-layer target tables:
 - `diary_entries`
 - `egg_progress`
 - `partner_links`
+- `community_info`
 - `partner_prompt_queue`
 - `internal_review_queue`
 
@@ -203,6 +211,7 @@ Current behavior:
 - `M01`, `M03`, and the rule-based `E01` recommendation path read from `card_catalog`
 - displayed card images use `image_url`
 - built-in CC0 fallback is disabled as a formal source
+- CC0 fallback is disabled
 - `/api/m01/cards/[cardId]/image` remains only as a legacy redirect to the external `image_url`
 
 Current minimal `card_catalog` fields:
@@ -245,8 +254,8 @@ Current temporary 4-slot layout:
 
 - top-left: `今日長輩圖`
 - top-right: `看圖寫一句`
-- bottom-left: `我的雞蛋進度`
-- bottom-right: `我的小檔案`
+- bottom-left: `關懷與配對`
+- bottom-right: `最新活動與政策`
 
 To check the currently bound menu:
 
@@ -329,7 +338,7 @@ Expected data:
 In LINE:
 
 1. Tap `看圖寫一句`.
-2. Send a short message under 20 Chinese characters and confirm it is rejected.
+2. Send a short message under 50 characters and confirm it is rejected.
 3. Send a valid diary entry.
 4. Send another diary entry on the same day and confirm it is blocked.
 
@@ -343,30 +352,32 @@ Expected data:
 
 In LINE:
 
-1. Tap `我的小檔案`.
+1. Tap `關懷與配對`.
 2. Enter a display name.
-3. Select 3 liked cards.
-4. Choose whether a partner reminder is welcome.
-5. Tap `我的小檔案` again and confirm the summary is shown.
+3. Choose whether diary reminders are welcome.
+4. Choose whether the elder wants to be a care ambassador.
+5. Choose whether the elder wants to be cared for.
+6. Choose whether the elder wants chat matching.
+7. Tap `關懷與配對` again and confirm the summary is shown.
 
 Expected data:
 
 - `participants`
-- `card_preferences`
-- optional `partner_links`
+- placeholder `partner_links`
 
 ## 5. M04 validation
 
-On the dashboard:
+In the admin and LINE flow:
 
-1. Use the `手動跑一次 queue 偵測` button.
-2. Confirm queue rows appear when participants and diary data meet trigger conditions.
-3. Change queue status using the queue action buttons.
+1. Open `/info-admin`.
+2. Add one `policy` or `community` row.
+3. In LINE tap `最新活動與政策`.
+4. Confirm recent information is shown.
+5. Tap category buttons and confirm category-specific replies.
 
 Expected data:
 
-- `partner_prompt_queue`
-- `internal_review_queue`
+- `community_info`
 
 ## 6. Manual setup still required
 

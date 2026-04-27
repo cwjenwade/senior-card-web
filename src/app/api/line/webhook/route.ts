@@ -8,13 +8,14 @@ import {
   getEggProgress,
   getGuidedDiaryPrompt,
   getParticipant,
+  listCommunityInfo,
   listCardInteractions,
+  listPartnerLinks,
   normalizeDiaryAnalysis,
   recalculateEggProgress,
   recordCardInteraction,
   runQueueDetection,
   saveDailyRecommendations,
-  upsertCardPreference,
   upsertDiaryEntry,
   upsertGuidedDiaryPrompt,
   upsertParticipant,
@@ -62,13 +63,17 @@ type ParsedPostback = {
   sessionId: string;
   cardId: string;
   partnerChoice: string;
+  setting: string;
+  value: string;
+  category: string;
 };
 
 const M01_TEXT_TRIGGERS = new Set(["製作長輩圖", "長輩圖", "今日長輩圖", "m01"]);
 const M02_TEXT_TRIGGERS = new Set(["寫日記換雞蛋", "寫日記", "看圖寫一句", "今日日記", "m02"]);
-const M03_TEXT_TRIGGERS = new Set(["我的小檔案", "小檔案", "我的簡單設定", "m03"]);
+const M03_TEXT_TRIGGERS = new Set(["關懷與配對", "關懷大使", "好友配對", "我的小檔案", "m03"]);
+const M04_TEXT_TRIGGERS = new Set(["最新活動與政策", "活動資訊", "政策資訊", "社區資訊", "m04"]);
 const EGG_TEXT_TRIGGERS = new Set(["我的雞蛋進度", "雞蛋進度", "egg"]);
-const MIN_DIARY_CJK = 20;
+const MIN_DIARY_CJK = 50;
 const MAX_DIARY_CJK = 300;
 
 function parsePostback(data: string): ParsedPostback {
@@ -79,6 +84,9 @@ function parsePostback(data: string): ParsedPostback {
     sessionId: params.get("session_id") ?? "",
     cardId: params.get("card_id") ?? "",
     partnerChoice: params.get("partner") ?? "",
+    setting: params.get("setting") ?? "",
+    value: params.get("value") ?? "",
+    category: params.get("category") ?? "",
   };
 }
 
@@ -109,7 +117,10 @@ async function replyToLine(replyToken: string, messages: unknown[]) {
 }
 
 function unknownMessage() {
-  return { type: "text", text: "請從下方選單選擇服務。" };
+  return {
+    type: "text",
+    text: "我可以陪你看長輩圖、寫今天的一句話、調整關懷設定，或看看最新活動與政策。點選下方選單就可以開始。",
+  };
 }
 
 function createM01SessionId(userId: string) {
@@ -182,49 +193,14 @@ function buildM01Carousel(sessionId: string, cards: CardAsset[]) {
                 displayText: `選這張 ${card.title}`,
               },
             },
-          ],
-        },
-      })),
-    },
-  };
-}
-
-function buildM03LikeCarousel(sessionId: string, cards: CardAsset[]) {
-  return {
-    type: "flex",
-    altText: "選三張喜歡的圖",
-    contents: {
-      type: "carousel",
-      contents: cards.map((card) => ({
-        type: "bubble",
-        hero: {
-          type: "image",
-          url: card.imageUrl,
-          size: "full",
-          aspectRatio: "4:5",
-          aspectMode: "cover",
-        },
-        body: {
-          type: "box",
-          layout: "vertical",
-          spacing: "sm",
-          contents: [
-            { type: "text", text: card.title, weight: "bold", size: "lg", wrap: true },
-            { type: "text", text: `${card.textType} / ${card.visualSeries}`, size: "sm", color: "#475569", wrap: true },
-          ],
-        },
-        footer: {
-          type: "box",
-          layout: "vertical",
-          contents: [
             {
               type: "button",
               style: "secondary",
               action: {
                 type: "postback",
-                label: "喜歡這張",
-                data: `module=m03&action=like_card&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
-                displayText: `喜歡這張 ${card.title}`,
+                label: "先收藏",
+                data: `module=m01&action=favorite&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
+                displayText: `先收藏 ${card.title}`,
               },
             },
           ],
@@ -234,34 +210,93 @@ function buildM03LikeCarousel(sessionId: string, cards: CardAsset[]) {
   };
 }
 
-function partnerChoiceMessage(sessionId: string) {
+function summarizeEggProgress(daysCompleted: number, eligible: boolean) {
+  const remaining = Math.max(0, 10 - daysCompleted);
+  return `14 天內已完成 ${daysCompleted} / 10 天。\n${eligible ? "已達成雞蛋資格。" : `距離雞蛋還差 ${remaining} 天。`}`;
+}
+
+function buildYesNoQuickReply(sessionId: string, setting: string) {
+  return buildFourButtonQuickReply([
+    { label: "願意", data: `module=m03&action=set_option&session_id=${encodeURIComponent(sessionId)}&setting=${encodeURIComponent(setting)}&value=yes`, displayText: "願意" },
+    { label: "先不要", data: `module=m03&action=set_option&session_id=${encodeURIComponent(sessionId)}&setting=${encodeURIComponent(setting)}&value=no`, displayText: "先不要" },
+  ]);
+}
+
+function buildM03SummaryText(
+  displayName: string,
+  settings: {
+    reminderOptIn: boolean;
+    ambassadorOptIn: boolean;
+    wantsCare: boolean;
+    chatMatchOptIn: boolean;
+  },
+  linkSummary: string[],
+) {
+  return [
+    "關懷與配對摘要",
+    `稱呼：${displayName}`,
+    `日記提醒：${settings.reminderOptIn ? "願意" : "先不要"}`,
+    `願意擔任關懷大使：${settings.ambassadorOptIn ? "願意" : "先不要"}`,
+    `希望被關懷：${settings.wantsCare ? "願意" : "先不要"}`,
+    `願意加入聊天配對：${settings.chatMatchOptIn ? "願意" : "先不要"}`,
+    `目前配對：${linkSummary.length ? linkSummary.join("、") : "尚未配對"}`,
+  ].join("\n");
+}
+
+function m03QuestionMessage(sessionId: string, step: "waiting_for_reminder" | "waiting_for_ambassador" | "waiting_for_care" | "waiting_for_chat") {
+  const config = {
+    waiting_for_reminder: "如果今天還沒寫日記，晚上提醒你一下，可以嗎？",
+    waiting_for_ambassador: "你願意擔任關懷大使，偶爾關心別人嗎？",
+    waiting_for_care: "如果一陣子沒出現，你希望有人先關心你一下嗎？",
+    waiting_for_chat: "你願意參加好友配對，之後再安排聊天嗎？",
+  } as const;
+
+  const setting = {
+    waiting_for_reminder: "reminder",
+    waiting_for_ambassador: "ambassador",
+    waiting_for_care: "care",
+    waiting_for_chat: "chat",
+  } as const;
+
   return {
     type: "text",
-    text: "如果之後比較久沒出現，願意有固定關懷夥伴先提醒一下嗎？",
-    quickReply: buildFourButtonQuickReply([
-      { label: "願意", data: `module=m03&action=set_partner&session_id=${encodeURIComponent(sessionId)}&partner=yes`, displayText: "願意" },
-      { label: "先不要", data: `module=m03&action=set_partner&session_id=${encodeURIComponent(sessionId)}&partner=no`, displayText: "先不要" },
-    ]),
+    text: config[step],
+    quickReply: buildYesNoQuickReply(sessionId, setting[step]),
   };
 }
 
-function summarizeEggProgress(daysCompleted: number, eligible: boolean) {
-  return `兩週內已完成 ${daysCompleted} / 10 天。\n${eligible ? "已達成雞蛋資格。" : "再持續寫幾天就能達成。"} `;
+function m04CategoryLabel(category: string) {
+  switch (category) {
+    case "policy":
+      return "政策";
+    case "neighborhood":
+      return "鄰里活動";
+    case "temple":
+      return "宮廟活動";
+    case "community":
+      return "社區資訊";
+    default:
+      return "最新資訊";
+  }
 }
 
-function preferenceSummaryText(displayName: string, preferredStyleMain: string, preferredImagery: string, wantsPartner: boolean) {
-  return `小檔案摘要\n稱呼：${displayName}\n喜歡的風格：${preferredStyleMain || "尚未設定"} / ${preferredImagery || "尚未設定"}\n固定關懷夥伴：${wantsPartner ? "願意" : "先不要"}`;
+function buildM04QuickReply() {
+  return buildFourButtonQuickReply([
+    { label: "看政策", data: "module=m04&action=category&category=policy", displayText: "看政策" },
+    { label: "看鄰里", data: "module=m04&action=category&category=neighborhood", displayText: "看鄰里活動" },
+    { label: "看宮廟", data: "module=m04&action=category&category=temple", displayText: "看宮廟活動" },
+    { label: "看社區", data: "module=m04&action=category&category=community", displayText: "看社區資訊" },
+  ]);
 }
 
-function derivePreference(cards: CardAsset[]) {
-  const count = (values: string[]) =>
-    [...new Set(values)].sort((left, right) => values.filter((value) => value === right).length - values.filter((value) => value === left).length)[0] ?? "";
-  return {
-    preferred_style_main: count(cards.map((card) => card.textType)),
-    preferred_tone: count(cards.map((card) => card.tone)),
-    preferred_imagery: count(cards.map((card) => card.visualSeries)),
-    profile_confidence: cards.length / 3,
-  };
+function buildM04ListText(category: string, rows: Awaited<ReturnType<typeof listCommunityInfo>>) {
+  const lines = rows.slice(0, 5).map((row, index) => {
+    const dateText = row.event_date ? `｜${row.event_date}` : "";
+    const locationText = row.location ? `｜${row.location}` : "";
+    return `${index + 1}. ${row.title}${dateText}${locationText}\n${row.description}${row.contact ? `\n聯絡：${row.contact}` : ""}`;
+  });
+
+  return `${m04CategoryLabel(category)}\n${lines.length ? lines.join("\n\n") : "目前還沒有上架中的資訊。之後再來看看，我們會持續補上。"}\n\n你也可以再點一次下方按鈕看其他分類。`;
 }
 
 async function buildTodayRecommendations(lineUserId: string, date: string, forceRefresh = false) {
@@ -321,7 +356,15 @@ async function buildTodayRecommendations(lineUserId: string, date: string, force
 async function ensureParticipantSeed(lineUserId: string) {
   const participant = await getParticipant(lineUserId);
   if (participant) return participant;
-  return upsertParticipant(lineUserId, { display_name: lineUserId, age_band: "", wants_partner: false });
+  return upsertParticipant(lineUserId, {
+    display_name: lineUserId,
+    age_band: "",
+    wants_partner: false,
+    reminder_opt_in: false,
+    care_ambassador_opt_in: false,
+    wants_care: false,
+    chat_match_opt_in: false,
+  });
 }
 
 async function handleEggProgress(replyToken: string, lineUserId: string) {
@@ -331,7 +374,7 @@ async function handleEggProgress(replyToken: string, lineUserId: string) {
     {
       type: "text",
       text: progress
-        ? `我的雞蛋進度\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`
+        ? `我的雞蛋進度\n今天是否完成：${(await hasCompletedToday(lineUserId, today)) ? "已完成" : "尚未完成"}\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`
         : "目前還沒有兩週進度資料，今天先寫一句吧。",
     },
   ]);
@@ -486,6 +529,28 @@ async function handleM01Select(request: NextRequest, replyToken: string, lineUse
   void request;
 }
 
+async function handleM01Favorite(replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  const today = getTodayInTaipei();
+  const card = (await listCards()).find((item) => item.id === payload.cardId);
+  if (!card) {
+    await replyToLine(replyToken, [unknownMessage()]);
+    return;
+  }
+
+  await recordCardInteraction({
+    id: `ci-${lineUserId}-${today}-${card.id}-favorite`,
+    participant_id: lineUserId,
+    card_id: card.id,
+    interaction_date: today,
+    action_type: "favorite",
+    selected_as_main: false,
+    diary_written: false,
+    created_at: new Date().toISOString(),
+  });
+
+  await replyToLine(replyToken, [{ type: "text", text: `已先幫你記下這張「${card.title}」。如果喜歡，也可以把它選成今天的主圖。` }]);
+}
+
 async function handleM02Start(replyToken: string, lineUserId: string) {
   const today = getTodayInTaipei();
   const prompt = await getGuidedDiaryPrompt(lineUserId, today);
@@ -613,13 +678,29 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
 
 async function handleM03Start(request: NextRequest, replyToken: string, lineUserId: string) {
   const participant = await ensureParticipantSeed(lineUserId);
-  const preference = await getCardPreference(lineUserId);
+  const links = await listPartnerLinks(lineUserId);
+  const linkSummary = links
+    .filter((row) => row.status !== "inactive" && row.status !== "closed")
+    .map((row) => `${row.link_type === "chat" ? "聊天配對" : row.link_type === "ambassador" ? "關懷大使" : "被關懷"}：${row.match_status ?? row.status}`);
 
-  if (participant.display_name !== lineUserId && preference) {
+  if (participant.m03_completed_at) {
     await replyToLine(replyToken, [
       {
         type: "text",
-        text: preferenceSummaryText(participant.display_name, preference.preferred_style_main, preference.preferred_imagery, participant.wants_partner),
+        text: buildM03SummaryText(
+          participant.display_name || lineUserId,
+          {
+            reminderOptIn: participant.reminder_opt_in,
+            ambassadorOptIn: participant.care_ambassador_opt_in,
+            wantsCare: participant.wants_care,
+            chatMatchOptIn: participant.chat_match_opt_in,
+          },
+          linkSummary,
+        ),
+        quickReply: buildFourButtonQuickReply([
+          { label: "重新設定", data: "module=m03&action=restart", displayText: "重新設定關懷與配對" },
+          { label: "看看活動", data: "module=m04&action=start", displayText: "看看活動與政策" },
+        ]),
       },
     ]);
     return;
@@ -629,99 +710,153 @@ async function handleM03Start(request: NextRequest, replyToken: string, lineUser
     session_id: createM03SessionId(lineUserId),
     step: "waiting_for_name",
     display_name: participant.display_name === lineUserId ? "" : participant.display_name,
-    liked_card_ids: [],
-    wants_partner: participant.wants_partner ? "yes" : "",
+    reminder_opt_in: participant.reminder_opt_in ? "yes" : "",
+    care_ambassador_opt_in: participant.care_ambassador_opt_in ? "yes" : "",
+    wants_care: participant.wants_care ? "yes" : "",
+    chat_match_opt_in: participant.chat_match_opt_in ? "yes" : "",
   });
 
-  await replyToLine(replyToken, [{ type: "text", text: "我的小檔案\n先告訴我，想怎麼稱呼你？直接回覆名字或暱稱就可以。" }]);
+  await replyToLine(replyToken, [{ type: "text", text: "關懷與配對\n先告訴我，想怎麼稱呼你？直接回覆名字或暱稱就可以。" }]);
   void request;
 }
 
 async function handleM03NameInput(request: NextRequest, replyToken: string, lineUserId: string, text: string) {
   const nextSession = await updateM03Session(lineUserId, {
-    step: "waiting_for_cards",
+    step: "waiting_for_reminder",
     display_name: text.trim(),
   });
-  const cards = (await listCards()).filter((card) => card.status === "active" && Boolean(card.imageUrl)).slice(0, 6);
-  await replyToLine(replyToken, [
-    { type: "text", text: "接下來請選三張你喜歡的圖，幫我知道你偏好的風格。" },
-    buildM03LikeCarousel(nextSession.session_id, cards),
-  ]);
+  await replyToLine(replyToken, [m03QuestionMessage(nextSession.session_id, "waiting_for_reminder")]);
   void request;
 }
 
-async function handleM03LikeCard(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
-  const session = (await getM03Session(lineUserId)) ?? (await updateM03Session(lineUserId, { session_id: payload.sessionId || createM03SessionId(lineUserId), step: "waiting_for_cards" }));
-  const nextLiked = [...new Set([...session.liked_card_ids, payload.cardId])];
-  if (nextLiked.length === session.liked_card_ids.length) {
-    await replyToLine(replyToken, [{ type: "text", text: "這張已經選過了，再挑別張看看。" }]);
-    return;
-  }
+async function handleM03SettingChoice(replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  const session = (await getM03Session(lineUserId)) ?? (await updateM03Session(lineUserId, { session_id: payload.sessionId || createM03SessionId(lineUserId), step: "waiting_for_reminder" }));
+  const value = payload.value === "yes" ? "yes" : "no";
 
-  const nextSession = await updateM03Session(lineUserId, {
-    session_id: session.session_id,
-    step: "waiting_for_cards",
-    liked_card_ids: nextLiked,
-  });
-
-  if (nextLiked.length < 3) {
-    const cards = (await listCards()).filter((card) => card.status === "active" && Boolean(card.imageUrl)).slice(0, 6);
-    await replyToLine(replyToken, [
-      { type: "text", text: `已選 ${nextLiked.length} / 3 張，再選 ${3 - nextLiked.length} 張就完成。` },
-      buildM03LikeCarousel(nextSession.session_id, cards),
-    ]);
-    return;
-  }
-
-  const allCards = await listCards();
-  const likedCards = nextLiked.map((cardId) => allCards.find((card) => card.id === cardId)).filter(Boolean) as CardAsset[];
-  const derived = derivePreference(likedCards);
-  await upsertParticipant(lineUserId, {
-    display_name: nextSession.display_name || lineUserId,
-  });
-  await upsertCardPreference({
-    participant_id: lineUserId,
-    preferred_style_main: derived.preferred_style_main,
-    preferred_tone: derived.preferred_tone,
-    preferred_imagery: derived.preferred_imagery,
-    profile_confidence: Number(derived.profile_confidence.toFixed(2)),
-    updated_at: new Date().toISOString(),
-  });
-  await updateM03Session(lineUserId, {
-    step: "waiting_for_partner",
-    liked_card_ids: nextLiked,
-  });
-  await replyToLine(replyToken, [partnerChoiceMessage(nextSession.session_id)]);
-  void request;
-}
-
-async function handleM03PartnerChoice(replyToken: string, lineUserId: string, choice: string) {
-  const wantsPartner = choice === "yes";
-  const participant = await upsertParticipant(lineUserId, { wants_partner: wantsPartner });
-  if (wantsPartner) {
-    await upsertPartnerLink({
-      id: `plink-${lineUserId}`,
-      participant_id: lineUserId,
-      partner_participant_id: "internal-partner-pool",
-      status: "active",
-      created_at: new Date().toISOString(),
+  if (payload.setting === "reminder") {
+    const next = await updateM03Session(lineUserId, {
+      session_id: session.session_id,
+      reminder_opt_in: value,
+      step: "waiting_for_ambassador",
     });
+    await replyToLine(replyToken, [m03QuestionMessage(next.session_id, "waiting_for_ambassador")]);
+    return;
   }
 
-  const preference = await getCardPreference(lineUserId);
-  await updateM03Session(lineUserId, {
+  if (payload.setting === "ambassador") {
+    const next = await updateM03Session(lineUserId, {
+      session_id: session.session_id,
+      care_ambassador_opt_in: value,
+      step: "waiting_for_care",
+    });
+    await replyToLine(replyToken, [m03QuestionMessage(next.session_id, "waiting_for_care")]);
+    return;
+  }
+
+  if (payload.setting === "care") {
+    const next = await updateM03Session(lineUserId, {
+      session_id: session.session_id,
+      wants_care: value,
+      step: "waiting_for_chat",
+    });
+    await replyToLine(replyToken, [m03QuestionMessage(next.session_id, "waiting_for_chat")]);
+    return;
+  }
+
+  const finalSession = await updateM03Session(lineUserId, {
+    session_id: session.session_id,
+    chat_match_opt_in: value,
     step: "idle",
-    wants_partner: wantsPartner ? "yes" : "no",
   });
+  const reminderOptIn = finalSession.reminder_opt_in === "yes";
+  const ambassadorOptIn = finalSession.care_ambassador_opt_in === "yes";
+  const wantsCare = finalSession.wants_care === "yes";
+  const chatMatchOptIn = finalSession.chat_match_opt_in === "yes";
+  const now = new Date().toISOString();
+
+  const participant = await upsertParticipant(lineUserId, {
+    display_name: finalSession.display_name || lineUserId,
+    reminder_opt_in: reminderOptIn,
+    care_ambassador_opt_in: ambassadorOptIn,
+    wants_care: wantsCare,
+    chat_match_opt_in: chatMatchOptIn,
+    wants_partner: wantsCare,
+    m03_completed_at: now,
+  });
+
+  await upsertPartnerLink({
+    id: `care-${lineUserId}`,
+    participant_id: lineUserId,
+    partner_participant_id: "care-match-pool",
+    status: wantsCare ? "active" : "inactive",
+    link_type: "care",
+    match_status: wantsCare ? "waiting_match" : "off",
+    chat_enabled: false,
+    updated_at: now,
+    created_at: now,
+  });
+  await upsertPartnerLink({
+    id: `ambassador-${lineUserId}`,
+    participant_id: lineUserId,
+    partner_participant_id: "care-ambassador-pool",
+    status: ambassadorOptIn ? "active" : "inactive",
+    link_type: "ambassador",
+    match_status: ambassadorOptIn ? "waiting_assignment" : "off",
+    chat_enabled: false,
+    updated_at: now,
+    created_at: now,
+  });
+  await upsertPartnerLink({
+    id: `chat-${lineUserId}`,
+    participant_id: lineUserId,
+    partner_participant_id: "chat-match-pool",
+    status: chatMatchOptIn ? "active" : "inactive",
+    link_type: "chat",
+    match_status: chatMatchOptIn ? "waiting_match" : "off",
+    chat_enabled: chatMatchOptIn,
+    updated_at: now,
+    created_at: now,
+  });
+
+  const linkSummary = [
+    wantsCare ? "被關懷：等待配對" : "被關懷：關閉",
+    ambassadorOptIn ? "關懷大使：等待分配" : "關懷大使：關閉",
+    chatMatchOptIn ? "聊天配對：等待安排" : "聊天配對：關閉",
+  ];
 
   await replyToLine(replyToken, [
     {
       type: "text",
-      text: preference
-        ? preferenceSummaryText(participant.display_name, preference.preferred_style_main, preference.preferred_imagery, participant.wants_partner)
-        : "小檔案已完成。",
+      text: buildM03SummaryText(
+        participant.display_name || lineUserId,
+        {
+          reminderOptIn,
+          ambassadorOptIn,
+          wantsCare,
+          chatMatchOptIn,
+        },
+        linkSummary,
+      ),
     },
   ]);
+}
+
+async function handleM04Start(replyToken: string, category = "") {
+  if (category) {
+    const rows = await listCommunityInfo({ category, status: "active" });
+    await replyToLine(replyToken, [{ type: "text", text: buildM04ListText(category, rows), quickReply: buildM04QuickReply() }]);
+    return;
+  }
+
+  const categories = ["policy", "neighborhood", "temple", "community"];
+  const segments = await Promise.all(categories.map(async (item) => ({ category: item, rows: await listCommunityInfo({ category: item, status: "active" }) })));
+  const text = [
+    "最新活動與政策",
+    ...segments.map((segment) => `${m04CategoryLabel(segment.category)}：${segment.rows[0]?.title ?? "目前還沒有上架中的資訊"}`),
+    "",
+    "想看哪一類，可以點下方按鈕。",
+  ].join("\n");
+  await replyToLine(replyToken, [{ type: "text", text, quickReply: buildM04QuickReply() }]);
 }
 
 async function handlePostback(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
@@ -737,6 +872,10 @@ async function handlePostback(request: NextRequest, replyToken: string, lineUser
     await handleM01Select(request, replyToken, lineUserId, payload);
     return;
   }
+  if (payload.module === "m01" && payload.action === "favorite") {
+    await handleM01Favorite(replyToken, lineUserId, payload);
+    return;
+  }
   if (payload.module === "m02" && payload.action === "start") {
     await handleM02Start(replyToken, lineUserId);
     return;
@@ -749,12 +888,29 @@ async function handlePostback(request: NextRequest, replyToken: string, lineUser
     await handleM03Start(request, replyToken, lineUserId);
     return;
   }
-  if (payload.module === "m03" && payload.action === "like_card") {
-    await handleM03LikeCard(request, replyToken, lineUserId, payload);
+  if (payload.module === "m03" && payload.action === "restart") {
+    await updateM03Session(lineUserId, {
+      session_id: createM03SessionId(lineUserId),
+      step: "waiting_for_name",
+      display_name: "",
+      reminder_opt_in: "",
+      care_ambassador_opt_in: "",
+      wants_care: "",
+      chat_match_opt_in: "",
+    });
+    await replyToLine(replyToken, [{ type: "text", text: "我們重新來一次。想怎麼稱呼你呢？直接回覆名字或暱稱就可以。" }]);
     return;
   }
-  if (payload.module === "m03" && payload.action === "set_partner") {
-    await handleM03PartnerChoice(replyToken, lineUserId, payload.partnerChoice);
+  if (payload.module === "m03" && payload.action === "set_option") {
+    await handleM03SettingChoice(replyToken, lineUserId, payload);
+    return;
+  }
+  if (payload.module === "m04" && payload.action === "start") {
+    await handleM04Start(replyToken);
+    return;
+  }
+  if (payload.module === "m04" && payload.action === "category") {
+    await handleM04Start(replyToken, payload.category);
     return;
   }
 
@@ -775,6 +931,10 @@ async function handleTextMessage(request: NextRequest, event: Extract<LineEvent,
   }
   if (M03_TEXT_TRIGGERS.has(text) || M03_TEXT_TRIGGERS.has(lowerText)) {
     await handleM03Start(request, event.replyToken, lineUserId);
+    return;
+  }
+  if (M04_TEXT_TRIGGERS.has(text) || M04_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM04Start(event.replyToken);
     return;
   }
   if (EGG_TEXT_TRIGGERS.has(text) || EGG_TEXT_TRIGGERS.has(lowerText)) {
@@ -803,7 +963,7 @@ async function handleEvent(request: NextRequest, event: LineEvent) {
 
   if (event.type === "follow") {
     await ensureParticipantSeed(lineUserId);
-    await replyToLine(event.replyToken, [{ type: "text", text: "歡迎使用 Jenny。請從下方選單選擇服務。" }]);
+    await replyToLine(event.replyToken, [{ type: "text", text: "歡迎來到 Jenny。今天想看長輩圖、寫一句心情、設定關懷與配對，或看看最新活動與政策，都可以從下方選單開始。" }]);
     return;
   }
 
@@ -821,7 +981,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "/api/line/webhook",
-    modules: ["m01", "m02", "m03", "egg"],
+    modules: ["m01", "m02", "m03", "m04", "egg"],
   });
 }
 

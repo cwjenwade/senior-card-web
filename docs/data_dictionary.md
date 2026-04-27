@@ -16,9 +16,10 @@ This document records the target product tables for M01 to M04 and the current m
 | `guided_diary_prompts` | selected card to M02 diary prompt bridge | new product table or local fallback |
 | `diary_entries` | product-facing diary storage with analysis fields | new product table or local fallback |
 | `egg_progress` | 14-day participation progress | new product table or local fallback |
-| `partner_links` | partner willingness / placeholder link | new product table or local fallback |
-| `partner_prompt_queue` | M04 partner reminder queue | new product table or local fallback |
-| `internal_review_queue` | M04 internal review queue | new product table or local fallback |
+| `partner_links` | M03 care / ambassador / chat placeholder link state | new product table or local fallback |
+| `community_info` | M04 policy / neighborhood / temple / community content | new product table or local fallback |
+| `partner_prompt_queue` | internal partner reminder queue | new product table or local fallback |
+| `internal_review_queue` | internal review queue | new product table or local fallback |
 
 ## Legacy Mapping
 
@@ -56,7 +57,12 @@ Mapping:
 | `id` | text | participant primary key, currently LINE user id |
 | `display_name` | text | M03 chosen name |
 | `age_band` | text | optional placeholder, not asked from elder in v1 |
-| `wants_partner` | boolean | M03 yes/no choice |
+| `wants_partner` | boolean | legacy internal flag, now mirrors `wants_care` for internal queue logic |
+| `reminder_opt_in` | boolean | whether 18:00 / 20:00 diary reminders are allowed |
+| `care_ambassador_opt_in` | boolean | whether the elder is willing to care for others |
+| `wants_care` | boolean | whether the elder wants someone to check in |
+| `chat_match_opt_in` | boolean | whether the elder is open to friend/chat matching |
+| `m03_completed_at` | timestamptz | first completed setting timestamp |
 | `created_at` | timestamptz | row creation time |
 | `updated_at` | timestamptz | last update time |
 
@@ -127,7 +133,7 @@ Mapping:
 | `participant_id` | text | participant id |
 | `card_id` | text | may be empty for refresh |
 | `interaction_date` | date | Taipei date |
-| `action_type` | text | `view`, `select`, `refresh`, `diary_written` |
+| `action_type` | text | `view`, `select`, `refresh`, `favorite`, `diary_written` |
 | `selected_as_main` | boolean | true only for main daily card |
 | `diary_written` | boolean | true when the linked diary is completed |
 | `created_at` | timestamptz | event time |
@@ -194,9 +200,28 @@ Mapping:
 | --- | --- | --- |
 | `id` | text | primary key |
 | `participant_id` | text | elder |
-| `partner_participant_id` | text | current v1 placeholder can be `internal-partner-pool` |
-| `status` | text | `active`, `pending`, `closed` |
+| `partner_participant_id` | text | current v1 placeholder can be a matching pool id |
+| `status` | text | `active`, `inactive`, `pending`, `closed` |
+| `link_type` | text | `care`, `ambassador`, `chat` |
+| `match_status` | text | `waiting_match`, `waiting_assignment`, `matched`, `off` |
+| `chat_enabled` | boolean | true only for chat matching placeholders |
+| `updated_at` | timestamptz | latest change |
 | `created_at` | timestamptz | creation time |
+
+## `community_info`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `info_id` | text | primary key |
+| `title` | text | display title |
+| `category` | text | `policy`, `neighborhood`, `temple`, `community` |
+| `description` | text | content summary |
+| `event_date` | date | optional date |
+| `location` | text | optional location |
+| `contact` | text | optional contact |
+| `status` | text | `active`, `draft`, `inactive` |
+| `created_at` | timestamptz | creation time |
+| `updated_at` | timestamptz | last update time |
 
 ## `partner_prompt_queue`
 
