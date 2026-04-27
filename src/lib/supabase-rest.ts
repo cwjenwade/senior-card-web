@@ -111,3 +111,24 @@ export async function supabasePatch(table: string, filterQuery: string, patch: R
     return false;
   }
 }
+
+export async function supabaseDelete(table: string, filterQuery: string) {
+  const baseUrl = resolveSupabaseRestUrl();
+  const headers = supabaseHeaders();
+  if (!baseUrl || !headers) return false;
+
+  try {
+    const response = await fetch(`${baseUrl}/${table}?${filterQuery}`, {
+      method: "DELETE",
+      headers: {
+        ...headers,
+        Prefer: "return=minimal",
+      },
+      cache: "no-store",
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

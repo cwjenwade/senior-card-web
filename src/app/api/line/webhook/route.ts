@@ -90,7 +90,7 @@ const M03_BLOCK_TEXT_TRIGGERS = new Set(["封鎖", "我要封鎖"]);
 const M04_TEXT_TRIGGERS = new Set(["最新活動與政策", "活動資訊", "政策資訊", "社區資訊", "m04"]);
 const EGG_TEXT_TRIGGERS = new Set(["我的雞蛋進度", "雞蛋進度", "egg"]);
 const MIN_DIARY_CJK = 50;
-const MOOD_OPTIONS = ["開心", "平靜", "感謝", "疲倦", "擔心", "孤單", "沒什麼特別感覺"] as const;
+const MOOD_OPTIONS = ["開心", "平靜", "難過", "焦慮", "生氣", "孤單", "沒什麼特別感覺"] as const;
 const M01_SERIES_OPTIONS = ["花系列", "神明系列", "台灣花布系列", "山系列"] as const;
 const MAX_M02_ENTRIES_PER_USER = 10;
 const LINE_WEBHOOK_TRACE = process.env.LINE_WEBHOOK_TRACE === "1";
@@ -246,24 +246,118 @@ function buildFourButtonQuickReply(items: Array<{ label: string; data: string; d
   };
 }
 
-function buildM01MoodQuickReply() {
-  return buildFourButtonQuickReply(
-    MOOD_OPTIONS.map((mood) => ({
-      label: mood,
-      data: `module=m01&action=choose_mood&mood=${encodeURIComponent(mood)}`,
-      displayText: mood,
-    })),
-  );
+function buildChoiceBubble(title: string, description: string, label: string, data: string, displayText: string, tone: "mood" | "series") {
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "lg",
+      paddingAll: "24px",
+      contents: [
+        {
+          type: "text",
+          text: title,
+          weight: "bold",
+          size: "xxl",
+          wrap: true,
+          color: tone === "mood" ? "#0f172a" : "#111827",
+        },
+        {
+          type: "text",
+          text: description,
+          size: "lg",
+          wrap: true,
+          color: tone === "mood" ? "#334155" : "#374151",
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      paddingAll: "20px",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          height: "md",
+          color: tone === "mood" ? "#0f766e" : "#2563eb",
+          action: {
+            type: "postback",
+            label,
+            data,
+            displayText,
+          },
+        },
+      ],
+    },
+    styles: {
+      body: {
+        backgroundColor: tone === "mood" ? "#ecfeff" : "#eff6ff",
+      },
+      footer: {
+        backgroundColor: tone === "mood" ? "#ccfbf1" : "#dbeafe",
+      },
+    },
+  };
 }
 
-function buildM01SeriesQuickReply() {
-  return buildFourButtonQuickReply(
-    M01_SERIES_OPTIONS.map((series) => ({
-      label: series,
-      data: `module=m01&action=choose_series&series=${encodeURIComponent(series)}`,
-      displayText: series,
-    })),
-  );
+function buildM01MoodCarousel() {
+  const descriptions: Record<(typeof MOOD_OPTIONS)[number], string> = {
+    開心: "今天心裡亮亮的。",
+    平靜: "今天想要安安穩穩。",
+    難過: "今天有一點低落。",
+    焦慮: "今天心裡有點急。",
+    生氣: "今天心裡卡卡的。",
+    孤單: "今天想要有人陪。",
+    "沒什麼特別感覺": "今天就平平常常。",
+  };
+
+  return {
+    type: "flex",
+    altText: "今天心情選一個",
+    contents: {
+      type: "carousel",
+      contents: MOOD_OPTIONS.map((mood) =>
+        buildChoiceBubble(
+          mood,
+          descriptions[mood],
+          "選這個心情",
+          `module=m01&action=choose_mood&mood=${encodeURIComponent(mood)}`,
+          mood,
+          "mood",
+        ),
+      ),
+    },
+  };
+}
+
+function buildM01SeriesCarousel() {
+  const descriptions: Record<(typeof M01_SERIES_OPTIONS)[number], string> = {
+    花系列: "今天想看柔柔的花。",
+    神明系列: "今天想看平安祝福。",
+    "台灣花布系列": "今天想看熱鬧花布。",
+    山系列: "今天想看山景和綠意。",
+  };
+
+  return {
+    type: "flex",
+    altText: "今天想看哪一類",
+    contents: {
+      type: "carousel",
+      contents: M01_SERIES_OPTIONS.map((series) =>
+        buildChoiceBubble(
+          series,
+          descriptions[series],
+          "選這一類",
+          `module=m01&action=choose_series&series=${encodeURIComponent(series)}`,
+          series,
+          "series",
+        ),
+      ),
+    },
+  };
 }
 
 function buildM02HistoryCarousel(entries: Awaited<ReturnType<typeof listDiaryEntries>>) {
@@ -332,54 +426,56 @@ function getSeasonKey(date: string) {
 function buildM01Carousel(sessionId: string, cards: CardAsset[]) {
   return {
     type: "flex",
-    altText: "今日長輩圖",
+    altText: "選一張今天喜歡的圖",
     contents: {
       type: "carousel",
       contents: cards.map((card) => ({
         type: "bubble",
+        size: "giga",
         hero: {
           type: "image",
           url: card.imageUrl,
           size: "full",
-          aspectRatio: "4:5",
+          aspectRatio: "1:1",
           aspectMode: "cover",
         },
         body: {
           type: "box",
           layout: "vertical",
-          spacing: "sm",
+          spacing: "md",
+          paddingAll: "24px",
           contents: [
-            { type: "text", text: card.title, weight: "bold", size: "xl", wrap: true },
-            { type: "text", text: `${card.textType} / ${card.visualSeries}`, size: "sm", color: "#475569", wrap: true },
-            { type: "text", text: card.caption, size: "sm", color: "#334155", wrap: true },
+            { type: "text", text: card.title, weight: "bold", size: "xl", wrap: true, color: "#0f172a" },
+            { type: "text", text: card.visualSeries, size: "md", color: "#475569", wrap: true },
+            { type: "text", text: card.caption, size: "lg", color: "#334155", wrap: true },
           ],
         },
         footer: {
           type: "box",
           layout: "vertical",
-          spacing: "sm",
+          paddingAll: "20px",
           contents: [
             {
               type: "button",
               style: "primary",
+              height: "md",
+              color: "#0f766e",
               action: {
                 type: "postback",
-                label: "選這張",
+                label: "選這張圖",
                 data: `module=m01&action=select&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
                 displayText: `選這張 ${card.title}`,
               },
             },
-            {
-              type: "button",
-              style: "secondary",
-              action: {
-                type: "postback",
-                label: "先收藏",
-                data: `module=m01&action=favorite&session_id=${encodeURIComponent(sessionId)}&card_id=${encodeURIComponent(card.id)}`,
-                displayText: `先收藏 ${card.title}`,
-              },
-            },
           ],
+        },
+        styles: {
+          body: {
+            backgroundColor: "#f8fafc",
+          },
+          footer: {
+            backgroundColor: "#ecfeff",
+          },
         },
       })),
     },
@@ -668,8 +764,8 @@ async function handleM02History(replyToken: string, lineUserId: string) {
   ]);
 }
 
-async function handleM01Start(request: NextRequest, replyToken: string, lineUserId: string, forceRefresh = false) {
-  traceLineWebhook("handler.selected", { handler: "handleM01Start", lineUserId, forceRefresh });
+async function handleM01Start(request: NextRequest, replyToken: string, lineUserId: string) {
+  traceLineWebhook("handler.selected", { handler: "handleM01Start", lineUserId });
   const today = getTodayInTaipei();
   await ensureParticipantSeed(lineUserId);
   const existingMood = await getUserDailyMood(lineUserId, today);
@@ -702,16 +798,16 @@ async function handleM01Start(request: NextRequest, replyToken: string, lineUser
     ? [
         {
           type: "text",
-          text: `今天的心情已記錄為「${existingMood.mood}」。接著選一個你今天想看的系列。`,
-          quickReply: buildM01SeriesQuickReply(),
+          text: `今天心情是「${existingMood.mood}」。\n今天想看哪一類？`,
         },
+        buildM01SeriesCarousel(),
       ]
     : [
         {
           type: "text",
-          text: "先選今天的心情，接著我會請你選長輩圖系列。",
-          quickReply: buildM01MoodQuickReply(),
+          text: "今天心情選一個。",
         },
+        buildM01MoodCarousel(),
       ]);
   void request;
 }
@@ -733,9 +829,9 @@ async function handleM01MoodChoice(replyToken: string, lineUserId: string, paylo
   await replyToLine(replyToken, [
     {
       type: "text",
-      text: `今天心情記下來了：${selectedMood}\n再選一個想看的長輩圖系列。`,
-      quickReply: buildM01SeriesQuickReply(),
+      text: `今天心情記下來了：${selectedMood}\n今天想看哪一類？`,
     },
+    buildM01SeriesCarousel(),
   ]);
   void session;
 }
@@ -783,7 +879,7 @@ async function handleM01SeriesChoice(replyToken: string, lineUserId: string, pay
   }
 
   await replyToLine(replyToken, [
-    { type: "text", text: `以下是今天的 ${series} 三張圖，選一張做今天的主圖。` },
+    { type: "text", text: "選一張今天喜歡的圖。" },
     buildM01Carousel(sessionId, cards),
   ]);
 }
@@ -854,7 +950,7 @@ async function handleM01Select(request: NextRequest, replyToken: string, lineUse
     },
     {
       type: "text",
-      text: `${card.title}\n今天的主圖已選定，已完成本季本日打卡領取。`,
+      text: `${card.title}\n今天這張就陪你。`,
     },
   ]);
   void request;
@@ -879,7 +975,7 @@ async function handleM01Favorite(replyToken: string, lineUserId: string, payload
     created_at: new Date().toISOString(),
   });
 
-  await replyToLine(replyToken, [{ type: "text", text: `已先幫你記下這張「${card.title}」。如果喜歡，也可以把它選成今天的主圖。` }]);
+  await replyToLine(replyToken, [{ type: "text", text: `已先記下「${card.title}」。喜歡的話，也可以選它當今天的圖。` }]);
 }
 
 async function handleM02Start(replyToken: string, lineUserId: string) {
@@ -1353,7 +1449,7 @@ async function handlePostback(request: NextRequest, replyToken: string, lineUser
     return;
   }
   if (payload.module === "m01" && payload.action === "refresh") {
-    await handleM01Start(request, replyToken, lineUserId, true);
+    await handleM01Start(request, replyToken, lineUserId);
     return;
   }
   if (payload.module === "m01" && payload.action === "select") {

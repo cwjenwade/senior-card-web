@@ -1,5 +1,5 @@
 import { readLocalTable, writeLocalTable } from "@/lib/local-table-store";
-import { canUseSupabase, hasTable, resolveSupabaseRestUrl, supabaseHeaders, supabaseInsert, supabaseSelect } from "@/lib/supabase-rest";
+import { canUseSupabase, hasTable, resolveSupabaseRestUrl, supabaseDelete, supabaseHeaders, supabaseInsert, supabaseSelect } from "@/lib/supabase-rest";
 
 export type TextType =
   | "問安語"
@@ -97,6 +97,15 @@ export type CardCatalogUpsertInput = {
   defaultPrompt: string;
   status: CardStatus;
   uploadedBy?: string;
+};
+
+export type CardAdminFilters = {
+  styleMain?: string;
+  tone?: string;
+  status?: string;
+  imagery?: string;
+  keyword?: string;
+  sort?: "latest_upload" | "last_updated" | "title";
 };
 
 const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
@@ -424,14 +433,29 @@ export async function listCardsForAdmin(filters?: {
   styleMain?: string;
   tone?: string;
   status?: string;
+  imagery?: string;
+  keyword?: string;
+  sort?: "latest_upload" | "last_updated" | "title";
 }) {
   const cards = await listCards();
-  return cards.filter((card) => {
-    if (filters?.styleMain && card.styleMain !== filters.styleMain) return false;
-    if (filters?.tone && card.tone !== filters.tone) return false;
-    if (filters?.status && card.status !== filters.status) return false;
-    return true;
-  });
+  const keyword = (filters?.keyword || "").trim().toLowerCase();
+  return cards
+    .filter((card) => {
+      if (filters?.styleMain && card.styleMain !== filters.styleMain) return false;
+      if (filters?.tone && card.tone !== filters.tone) return false;
+      if (filters?.status && card.status !== filters.status) return false;
+      if (filters?.imagery && card.imagery !== filters.imagery) return false;
+      if (keyword) {
+        const haystack = [card.cardTitle, card.captionText, card.cardId, card.imagery].join(" ").toLowerCase();
+        if (!haystack.includes(keyword)) return false;
+      }
+      return true;
+    })
+    .sort((left, right) => {
+      if (filters?.sort === "title") return left.cardTitle.localeCompare(right.cardTitle, "zh-Hant");
+      if (filters?.sort === "last_updated") return right.updatedAt.localeCompare(left.updatedAt);
+      return right.createdAt.localeCompare(left.createdAt) || right.updatedAt.localeCompare(left.updatedAt);
+    });
 }
 
 export async function getActiveCards() {
@@ -561,7 +585,27 @@ export async function getCardFilterOptions() {
     styleMain: [...new Set(cards.map((card) => card.styleMain))].sort(),
     tone: [...new Set(cards.map((card) => card.tone))].sort(),
     status: [...new Set(cards.map((card) => card.status))].sort(),
+    imagery: [...new Set(cards.map((card) => card.imagery))].sort(),
   };
+}
+
+export async function deleteDraftCards(cardIds: string[]) {
+  const ids = [...new Set(cardIds.filter(Boolean))];
+  if (ids.length === 0) return 0;
+
+  if (canUseSupabase() && (await hasTable(CARD_TABLE))) {
+    const query = ids.map((id) => `"${id}"`).join(",");
+    const deleted = await supabaseDelete(CARD_TABLE, `card_id=in.(${encodeURIComponent(query)})&status=eq.draft`);
+    return deleted ? ids.length : 0;
+  }
+
+  const existingRows = await localReadCards();
+  const nextRows = existingRows.filter((row) => {
+    const normalized = normalizeRow(row);
+    return !(ids.includes(normalized.card_id) && normalized.status === "draft");
+  });
+  await writeLocalCards(nextRows);
+  return existingRows.length - nextRows.length;
 }
 
 export async function recommendCards(options: {
