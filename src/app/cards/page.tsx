@@ -8,6 +8,7 @@ type SearchParams = Promise<{
   style_main?: string;
   tone?: string;
   status?: string;
+  error?: string;
 }>;
 
 function valueOrAll(value?: string) {
@@ -33,10 +34,10 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
         <header className="rounded-3xl border border-stone-800 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_35%),linear-gradient(135deg,_rgba(28,25,23,0.98),_rgba(17,24,39,0.98))] p-8 shadow-2xl">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-sky-300">External Card Asset Mode</p>
+              <p className="text-sm uppercase tracking-[0.3em] text-sky-300">Cloudinary Card Asset Mode</p>
               <h1 className="mt-3 text-4xl font-semibold text-stone-50">長輩圖管理後台</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-stone-300">
-                目前採用外部圖片模式。這裡只管理圖卡 metadata 與 `image_url`，不儲存圖片檔本體，也不會上傳到 Supabase Storage。
+                圖片正式上傳到 Cloudinary，Supabase 只保留圖卡 metadata、`image_url` 與 `image_key`。不會把圖片檔存進 Vercel 或 Supabase Storage。
               </p>
             </div>
             <Link className="rounded-full border border-stone-700 px-4 py-2 text-sm text-stone-100" href="/">
@@ -47,16 +48,21 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
 
         <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6">
           <h2 className="text-xl font-semibold">新增圖卡</h2>
-          <p className="mt-2 text-sm text-stone-400">第一版只支援外部 `image_url`。若未來接 Cloudinary / ImageKit，再補 `image_key` 與正式上傳流程。</p>
-          <form action="/api/admin/cards" className="mt-6 grid gap-4 md:grid-cols-2" method="post">
+          <p className="mt-2 text-sm text-stone-400">請直接上傳圖片到 Cloudinary，再把文字 metadata 寫進 `card_catalog`。</p>
+          {searchParams.error === "missing-cloudinary-config" ? (
+            <p className="mt-4 rounded-2xl border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+              Cloudinary 環境變數尚未設定完成，所以這次沒有上傳成功。請先設定 `CLOUDINARY_CLOUD_NAME`、`CLOUDINARY_API_KEY`、`CLOUDINARY_API_SECRET`。
+            </p>
+          ) : null}
+          <form action="/api/admin/cards" className="mt-6 grid gap-4 md:grid-cols-2" encType="multipart/form-data" method="post">
             <input name="intent" type="hidden" value="create" />
             <input name="redirectTo" type="hidden" value="/cards" />
-            <input name="imageProvider" type="hidden" value="external" />
+            <input name="imageProvider" type="hidden" value="cloudinary" />
             <input name="uploadedBy" type="hidden" value="admin-ui" />
 
             <label className="flex flex-col gap-2 text-sm">
-              <span>image_url</span>
-              <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="imageUrl" placeholder="https://..." required type="url" />
+              <span>圖片檔案</span>
+              <input accept="image/*" className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="imageFile" required type="file" />
             </label>
             <label className="flex flex-col gap-2 text-sm">
               <span>card_title</span>
@@ -87,8 +93,9 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
               <span>imagery</span>
               <select className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue="花系列" name="imagery">
                 <option value="花系列">花系列</option>
-                <option value="神佛系列">神佛系列</option>
-                <option value="山林系列">山林系列</option>
+                <option value="神明系列">神明系列</option>
+                <option value="台灣花布系列">台灣花布系列</option>
+                <option value="山系列">山系列</option>
               </select>
             </label>
             <label className="flex flex-col gap-2 text-sm">
@@ -125,7 +132,7 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
             </label>
             <div className="flex items-end">
               <button className="rounded-full bg-sky-300 px-5 py-3 text-sm font-medium text-stone-950" type="submit">
-                新增外部圖卡
+                上傳並新增圖卡
               </button>
             </div>
           </form>
@@ -182,9 +189,9 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
                       </div>
                     )}
                     <div className="rounded-2xl border border-sky-900/60 bg-sky-950/30 p-3 text-xs leading-6 text-sky-100">
-                      外部圖片模式
+                      Cloudinary 圖片
                       <br />
-                      不儲存圖片檔本體
+                      Supabase 只存 metadata
                     </div>
                   </div>
 
@@ -220,17 +227,22 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
                       </div>
                     </div>
 
-                    <form action="/api/admin/cards" className="mt-4 grid gap-4 md:grid-cols-2" method="post">
+                    <form action="/api/admin/cards" className="mt-4 grid gap-4 md:grid-cols-2" encType="multipart/form-data" method="post">
                       <input name="intent" type="hidden" value="update" />
                       <input name="cardId" type="hidden" value={card.cardId} />
-                      <input name="imageProvider" type="hidden" value={card.imageProvider || "external"} />
+                      <input name="imageProvider" type="hidden" value={card.imageProvider || "cloudinary"} />
                       <input name="uploadedBy" type="hidden" value={card.uploadedBy || "admin-ui"} />
                       <input name="redirectTo" type="hidden" value={`/cards?style_main=${encodeURIComponent(filters.styleMain)}&tone=${encodeURIComponent(filters.tone)}&status=${encodeURIComponent(filters.status)}`} />
 
                       <label className="flex flex-col gap-2 text-sm">
-                        <span>image_url</span>
-                        <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={card.imageUrl} name="imageUrl" required type="url" />
+                        <span>目前 image_url</span>
+                        <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-stone-400" defaultValue={card.imageUrl} name="imageUrl" readOnly type="url" />
                       </label>
+                      <label className="flex flex-col gap-2 text-sm">
+                        <span>更換圖片檔案</span>
+                        <input accept="image/*" className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="imageFile" type="file" />
+                      </label>
+                      <input name="imageKey" type="hidden" value={card.imageKey} />
                       <label className="flex flex-col gap-2 text-sm">
                         <span>card_title</span>
                         <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={card.cardTitle} name="cardTitle" required />
@@ -260,8 +272,9 @@ export default async function CardManagementPage(props: { searchParams: SearchPa
                         <span>imagery</span>
                         <select className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={card.imagery} name="imagery">
                           <option value="花系列">花系列</option>
-                          <option value="神佛系列">神佛系列</option>
-                          <option value="山林系列">山林系列</option>
+                          <option value="神明系列">神明系列</option>
+                          <option value="台灣花布系列">台灣花布系列</option>
+                          <option value="山系列">山系列</option>
                         </select>
                       </label>
                       <label className="flex flex-col gap-2 text-sm">

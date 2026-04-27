@@ -2,11 +2,16 @@ create table if not exists public.participants (
   id text primary key,
   display_name text not null default '',
   age_band text not null default '',
+  district text not null default '',
   wants_partner boolean not null default false,
   wants_reminders boolean not null default false,
   wants_to_help_others boolean not null default false,
   wants_to_be_cared_for boolean not null default false,
   wants_chat_matching boolean not null default false,
+  is_little_angel boolean not null default false,
+  is_little_owner boolean not null default false,
+  free_owner_slots integer not null default 5,
+  extra_owner_slots integer not null default 0,
   reminder_opt_in boolean not null default false,
   care_ambassador_opt_in boolean not null default false,
   wants_care boolean not null default false,
@@ -20,6 +25,11 @@ alter table if exists public.participants add column if not exists wants_reminde
 alter table if exists public.participants add column if not exists wants_to_help_others boolean not null default false;
 alter table if exists public.participants add column if not exists wants_to_be_cared_for boolean not null default false;
 alter table if exists public.participants add column if not exists wants_chat_matching boolean not null default false;
+alter table if exists public.participants add column if not exists district text not null default '';
+alter table if exists public.participants add column if not exists is_little_angel boolean not null default false;
+alter table if exists public.participants add column if not exists is_little_owner boolean not null default false;
+alter table if exists public.participants add column if not exists free_owner_slots integer not null default 5;
+alter table if exists public.participants add column if not exists extra_owner_slots integer not null default 0;
 alter table if exists public.participants add column if not exists reminder_opt_in boolean not null default false;
 alter table if exists public.participants add column if not exists care_ambassador_opt_in boolean not null default false;
 alter table if exists public.participants add column if not exists wants_care boolean not null default false;
@@ -107,6 +117,7 @@ create table if not exists public.diary_entries (
   participant_id text not null references public.participants(id) on delete cascade,
   entry_date date not null,
   entry_text text not null,
+  entry_index integer not null default 1,
   linked_card_id text not null default '',
   risk_label text not null default '',
   need_type text not null default '',
@@ -135,6 +146,8 @@ create table if not exists public.partner_links (
   link_id text unique not null,
   participant_id text not null references public.participants(id) on delete cascade,
   partner_participant_id text not null,
+  angel_participant_id text not null default '',
+  owner_participant_id text not null default '',
   status text not null default 'pending',
   link_type text not null default 'care_pair',
   match_status text not null default 'pending',
@@ -145,11 +158,31 @@ create table if not exists public.partner_links (
 
 alter table if exists public.partner_links add column if not exists link_id text;
 update public.partner_links set link_id = id where link_id is null;
+alter table if exists public.partner_links add column if not exists angel_participant_id text not null default '';
+alter table if exists public.partner_links add column if not exists owner_participant_id text not null default '';
 alter table if exists public.partner_links add column if not exists link_type text not null default 'care_pair';
 alter table if exists public.partner_links add column if not exists match_status text not null default 'pending';
 alter table if exists public.partner_links add column if not exists chat_enabled boolean not null default false;
 alter table if exists public.partner_links add column if not exists updated_at timestamptz not null default now();
 create unique index if not exists idx_partner_links_link_id on public.partner_links (link_id);
+
+create table if not exists public.user_daily_mood (
+  participant_id text not null references public.participants(id) on delete cascade,
+  selected_date date not null,
+  mood text not null,
+  created_at timestamptz not null default now(),
+  primary key (participant_id, selected_date)
+);
+
+create table if not exists public.user_daily_checkin (
+  participant_id text not null references public.participants(id) on delete cascade,
+  selected_date date not null,
+  claimed_today boolean not null default false,
+  claim_season text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (participant_id, selected_date)
+);
 
 create table if not exists public.care_events (
   event_id text primary key,
@@ -167,10 +200,44 @@ create table if not exists public.community_info (
   description text not null,
   event_date date,
   location text not null default '',
+  district text not null default '',
   contact text not null default '',
   status text not null default 'active',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists public.care_messages (
+  id text primary key,
+  sender_participant_id text not null references public.participants(id) on delete cascade,
+  receiver_participant_id text not null references public.participants(id) on delete cascade,
+  message_type text not null,
+  message_text text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.volunteer_requests (
+  id text primary key,
+  participant_id text not null references public.participants(id) on delete cascade,
+  request_text text not null,
+  status text not null default 'open',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.user_reports (
+  id text primary key,
+  reporter_participant_id text not null references public.participants(id) on delete cascade,
+  target_participant_id text not null references public.participants(id) on delete cascade,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.user_blocks (
+  id text primary key,
+  blocker_participant_id text not null references public.participants(id) on delete cascade,
+  target_participant_id text not null references public.participants(id) on delete cascade,
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.partner_prompt_queue (
@@ -202,6 +269,8 @@ create table if not exists public.internal_review_queue (
 alter table if exists public.diary_entries add column if not exists model_version text not null default '';
 alter table if exists public.diary_entries add column if not exists rule_version text not null default '';
 alter table if exists public.diary_entries add column if not exists analysis_run_at timestamptz;
+alter table if exists public.diary_entries add column if not exists entry_index integer not null default 1;
+alter table if exists public.community_info add column if not exists district text not null default '';
 alter table if exists public.partner_prompt_queue add column if not exists model_version text not null default '';
 alter table if exists public.partner_prompt_queue add column if not exists rule_version text not null default '';
 alter table if exists public.partner_prompt_queue add column if not exists trigger_date date not null default current_date;
@@ -238,10 +307,18 @@ create table if not exists public.line_diary_entries (
 create unique index if not exists idx_card_interactions_day_action on public.card_interactions (participant_id, interaction_date, card_id, action_type);
 create unique index if not exists idx_daily_card_recommendations_unique on public.daily_card_recommendations (participant_id, recommendation_date, rank_order);
 create unique index if not exists idx_guided_diary_prompts_unique on public.guided_diary_prompts (participant_id, prompt_date);
+create unique index if not exists idx_user_daily_mood_unique on public.user_daily_mood (participant_id, selected_date);
+create unique index if not exists idx_user_daily_checkin_unique on public.user_daily_checkin (participant_id, selected_date);
 create unique index if not exists idx_partner_prompt_queue_dedupe on public.partner_prompt_queue (participant_id, trigger_type, trigger_date);
 create unique index if not exists idx_internal_review_queue_dedupe on public.internal_review_queue (participant_id, trigger_type, trigger_date);
 create index if not exists idx_care_events_participant_time on public.care_events (participant_id, created_at desc);
+create index if not exists idx_care_messages_sender_time on public.care_messages (sender_participant_id, created_at desc);
+create index if not exists idx_care_messages_receiver_time on public.care_messages (receiver_participant_id, created_at desc);
 create index if not exists idx_community_info_category_status on public.community_info (category, status, event_date desc);
+create index if not exists idx_community_info_district_status on public.community_info (district, status, event_date desc);
+create index if not exists idx_volunteer_requests_participant_time on public.volunteer_requests (participant_id, created_at desc);
+create index if not exists idx_user_reports_target_time on public.user_reports (target_participant_id, created_at desc);
+create index if not exists idx_user_blocks_target_time on public.user_blocks (target_participant_id, created_at desc);
 
 insert into public.community_info (
   info_id, title, category, description, event_date, location, contact, status

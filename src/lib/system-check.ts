@@ -62,7 +62,7 @@ export async function runSystemCheck() {
     {
       title: "M02 completed-today and egg progress",
       status: "completed",
-      detail: "Daily duplicate protection and 14-day egg progress recalculation are implemented.",
+      detail: "50-character diary rule, 10-entry cap, and 14-day egg progress recalculation are implemented.",
     },
     {
       title: "M03 care and matching settings",
@@ -72,7 +72,7 @@ export async function runSystemCheck() {
     {
       title: "M04 info service",
       status: infoRows.length > 0 ? "completed" : "partial",
-      detail: infoRows.length > 0 ? `Active information rows: ${infoRows.length}.` : "Info service table exists but does not yet contain active information rows.",
+      detail: infoRows.length > 0 ? `Active information rows: ${infoRows.length}, with district-aware filtering available in LINE.` : "Info service table exists but does not yet contain active information rows.",
     },
     {
       title: "rich menu binding",

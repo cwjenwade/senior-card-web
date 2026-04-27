@@ -8,8 +8,9 @@ export type TextType =
 
 export type VisualSeries =
   | "花系列"
-  | "神佛系列"
-  | "山林系列";
+  | "神明系列"
+  | "台灣花布系列"
+  | "山系列";
 
 export type CardStatus = "active" | "draft" | "inactive" | "archived";
 
@@ -104,8 +105,9 @@ export const textTypes: TextType[] = ["問安語", "勵志語", "神佛金句"];
 
 export const visualSeriesOptions: VisualSeries[] = [
   "花系列",
-  "神佛系列",
-  "山林系列",
+  "神明系列",
+  "台灣花布系列",
+  "山系列",
 ];
 
 const textTypeConfigs: Record<
@@ -143,8 +145,9 @@ const visualSeriesConfigs: Record<
   }
 > = {
   花系列: { emoji: "🌸", bgStart: "#fff1f2", bgEnd: "#fecdd3", accent: "#be123c" },
-  神佛系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412" },
-  山林系列: { emoji: "🌿", bgStart: "#ecfccb", bgEnd: "#bbf7d0", accent: "#166534" },
+  神明系列: { emoji: "🙏", bgStart: "#fff7ed", bgEnd: "#fed7aa", accent: "#9a3412" },
+  "台灣花布系列": { emoji: "🧵", bgStart: "#eff6ff", bgEnd: "#dbeafe", accent: "#1d4ed8" },
+  山系列: { emoji: "🌿", bgStart: "#ecfccb", bgEnd: "#bbf7d0", accent: "#166534" },
 };
 
 const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
@@ -174,7 +177,7 @@ const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
     style_main: "勵志語",
     style_sub: "舒心散步",
     tone: "明亮",
-    imagery: "山林系列",
+    imagery: "山系列",
     text_density: "medium",
     energy_level: "uplift",
     caption_text: "放慢腳步，今天也能有好心情。",
@@ -191,7 +194,7 @@ const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
     style_main: "神佛金句",
     style_sub: "靜心平安",
     tone: "平靜",
-    imagery: "神佛系列",
+    imagery: "神明系列",
     text_density: "short",
     energy_level: "calm",
     caption_text: "願你平安健康，福慧常伴左右。",
@@ -225,7 +228,7 @@ const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
     style_main: "勵志語",
     style_sub: "向光而行",
     tone: "明亮",
-    imagery: "山林系列",
+    imagery: "山系列",
     text_density: "medium",
     energy_level: "uplift",
     caption_text: "願你心裡有光，日子一天比一天安穩。",
@@ -242,7 +245,7 @@ const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
     style_main: "神佛金句",
     style_sub: "安心祝福",
     tone: "平靜",
-    imagery: "神佛系列",
+    imagery: "神明系列",
     text_density: "short",
     energy_level: "calm",
     caption_text: "心安就是福，願福氣常在。",
@@ -251,6 +254,21 @@ const EXTERNAL_SEED_CARDS: CardCatalogRow[] = [
     uploaded_by: "system-seed",
   },
 ];
+
+function normalizeVisualSeries(value: string): VisualSeries {
+  switch (value) {
+    case "神佛系列":
+    case "神明系列":
+      return "神明系列";
+    case "山林系列":
+    case "山系列":
+      return "山系列";
+    case "台灣花布系列":
+      return "台灣花布系列";
+    default:
+      return "花系列";
+  }
+}
 
 function normalizeRow(row: CardCatalogRow): CardCatalogRow {
   return {
@@ -263,7 +281,7 @@ function normalizeRow(row: CardCatalogRow): CardCatalogRow {
     style_main: row.style_main || row.text_type || "問安語",
     style_sub: row.style_sub || "",
     tone: row.tone || "溫和",
-    imagery: row.imagery || row.visual_series || "花系列",
+    imagery: normalizeVisualSeries(String(row.imagery || row.visual_series || "花系列")),
     text_density: row.text_density || "short",
     energy_level: row.energy_level || "steady",
     caption_text: row.caption_text || row.caption || "",
@@ -275,7 +293,7 @@ function normalizeRow(row: CardCatalogRow): CardCatalogRow {
     id: row.id || row.card_id || "",
     title: row.title || row.card_title || "",
     text_type: row.text_type || row.style_main || "問安語",
-    visual_series: row.visual_series || row.imagery || "花系列",
+    visual_series: normalizeVisualSeries(String(row.visual_series || row.imagery || "花系列")),
     caption: row.caption || row.caption_text || "",
     prompt: row.prompt || row.default_prompt || "",
     cc0_source: row.cc0_source || "",

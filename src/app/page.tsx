@@ -54,8 +54,17 @@ export default async function HomePage() {
             <Link className="rounded-full border border-sky-700 px-4 py-2 text-sky-100" href="/cards">
               長輩圖管理後台
             </Link>
+            <Link className="rounded-full border border-violet-700 px-4 py-2 text-violet-100" href="/users">
+              使用者查詢
+            </Link>
+            <Link className="rounded-full border border-amber-700 px-4 py-2 text-amber-100" href="/m02-admin">
+              日記與雞蛋監看
+            </Link>
             <Link className="rounded-full border border-cyan-700 px-4 py-2 text-cyan-100" href="/m03">
               關懷與配對頁面
+            </Link>
+            <Link className="rounded-full border border-teal-700 px-4 py-2 text-teal-100" href="/m03-admin">
+              M03 管理後台
             </Link>
             <Link className="rounded-full border border-emerald-700 px-4 py-2 text-emerald-100" href="/info-admin">
               活動與政策後台
@@ -109,7 +118,7 @@ export default async function HomePage() {
                       <OnOffPill label="聊天配對" on={participant.wants_chat_matching} />
                     </div>
                     <p className="mt-3 text-sm text-stone-300">
-                      兩週進度：{eggProgress?.days_completed ?? 0} / 10
+                      兩週進度：{eggProgress?.days_completed ?? 0} / 14
                       {eggProgress?.egg_box_eligible ? "，已達成" : "，未達成"}
                     </p>
                   </div>

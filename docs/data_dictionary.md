@@ -1,99 +1,32 @@
 # Data Dictionary
 
-Generated on 2026-04-26.
+Updated on 2026-04-27.
 
-This document records the target product tables for M01 to M04 and the current mapping from legacy prototype storage.
+This file reflects the formal Jenny product schema used by the website admin and LINE modules.
 
-## Table Overview
+## M01
 
-| Target table | Purpose | Current source before full migration |
-| --- | --- | --- |
-| `participants` | M03 friend care settings and reminder preferences | new product table or local fallback |
-| `card_catalog` | M01 card metadata library with external `image_url` | Supabase `card_catalog` or local metadata fallback |
-| `card_preferences` | style preference summary from M03 | new product table or local fallback |
-| `card_interactions` | M01/M02 product-level card actions | new product table or local fallback |
-| `daily_card_recommendations` | today's 3-card recommendation snapshot | new product table or local fallback |
-| `guided_diary_prompts` | selected card to M02 diary prompt bridge | new product table or local fallback |
-| `diary_entries` | product-facing diary storage with analysis fields | new product table or local fallback |
-| `egg_progress` | 14-day participation progress | new product table or local fallback |
-| `partner_links` | M03 care pair / chat pair state | new product table or local fallback |
-| `care_events` | M03 low-intensity interaction log | new product table or local fallback |
-| `community_info` | M04 policy / neighborhood / temple / community content | new product table or local fallback |
-| `partner_prompt_queue` | internal partner reminder queue | new product table or local fallback |
-| `internal_review_queue` | internal review queue | new product table or local fallback |
+### `card_catalog`
 
-## Legacy Mapping
-
-### `line_interaction_events` -> product tables
-
-Legacy event rows still exist and are still used for webhook/session compatibility.
-
-Mapping:
-
-- `event_type = shown` -> `card_interactions.action_type = view`
-- `event_type = selected` -> `card_interactions.action_type = select`
-- `event_type = refreshed` -> `card_interactions.action_type = refresh`
-- `event_type = m01_session` -> M01 transient session state only
-- `event_type = m02_session` -> M02 transient session state only
-- `event_type = m03_session` -> M03 transient onboarding state only
-
-### `line_diary_entries` -> `diary_entries`
-
-Legacy diary rows are still written for compatibility.
-
-Mapping:
-
-- `user_id` -> `participant_id`
-- `created_at` -> `entry_date` derived by Taipei day
-- `entry_text` -> `entry_text`
-- `linked_card_id` -> `linked_card_id`
-- analysis fields remain empty until copied into formal `diary_entries`
-
-## Target Tables
-
-## `participants`
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | participant primary key, currently LINE user id |
-| `display_name` | text | M03 chosen name |
-| `age_band` | text | optional placeholder, not asked from elder in v1 |
-| `wants_partner` | boolean | legacy internal flag, now mirrors `wants_to_be_cared_for` for internal queue logic |
-| `wants_reminders` | boolean | canonical M03 flag for 18:00 / 20:00 diary reminders |
-| `wants_to_help_others` | boolean | canonical M03 flag for care ambassador eligibility |
-| `wants_to_be_cared_for` | boolean | canonical M03 flag for care-pair eligibility |
-| `wants_chat_matching` | boolean | canonical M03 flag for chat-pair eligibility |
-| `reminder_opt_in` | boolean | compatibility mirror of `wants_reminders` |
-| `care_ambassador_opt_in` | boolean | compatibility mirror of `wants_to_help_others` |
-| `wants_care` | boolean | compatibility mirror of `wants_to_be_cared_for` |
-| `chat_match_opt_in` | boolean | compatibility mirror of `wants_chat_matching` |
-| `m03_completed_at` | timestamptz | first completed setting timestamp |
-| `created_at` | timestamptz | row creation time |
-| `updated_at` | timestamptz | last update time |
-
-## `card_catalog`
-
-Minimum product columns:
-
-- `card_id`
-- `card_title`
-- `image_provider`
-- `image_url`
-- `image_key`
-- `style_main`
-- `style_sub`
-- `tone`
-- `imagery`
-- `text_density`
-- `energy_level`
-- `caption_text`
-- `default_prompt`
-- `status`
-- `uploaded_by`
+- `card_id`: primary key
+- `card_title`: card name
+- `image_provider`: should be `cloudinary` for formal uploads
+- `image_url`: Cloudinary secure URL
+- `image_key`: Cloudinary public id
+- `style_main`: card copy style
+- `style_sub`: sub-style label
+- `tone`: emotional tone
+- `imagery`: `花系列` / `神明系列` / `台灣花布系列` / `山系列`
+- `text_density`: copy length bucket
+- `energy_level`: visual energy bucket
+- `caption_text`: final caption
+- `default_prompt`: optional writing prompt
+- `status`: `active` / `draft` / `inactive` / `archived`
+- `uploaded_by`: admin source
 - `created_at`
 - `updated_at`
 
-Compatibility columns kept for current runtime:
+Compatibility columns still kept:
 
 - `id`
 - `title`
@@ -106,164 +39,193 @@ Compatibility columns kept for current runtime:
 - `color_tone`
 - `religious_content`
 
-Mapping:
+### `card_interactions`
 
-- `card_id` = `id`
-- `card_title` = `title`
-- `image_provider` = external asset source label
-- `image_url` = actual display URL used by M01 / M03
-- `image_key` = reserved for future managed providers
-- `style_main` = `text_type`
-- `style_sub` = lightweight sub-style label
-- `imagery` = `visual_series`
-- `caption_text` = `caption`
-- `default_prompt` = `prompt`
+- `id`
+- `participant_id`
+- `card_id`
+- `interaction_date`
+- `action_type`
+- `selected_as_main`
+- `diary_written`
+- `created_at`
 
-## `card_preferences`
+### `card_preferences`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `participant_id` | text | primary key |
-| `preferred_style_main` | text | derived from liked cards |
-| `preferred_tone` | text | derived from liked cards |
-| `preferred_imagery` | text | derived from liked cards |
-| `profile_confidence` | numeric | 0 to 1 |
-| `updated_at` | timestamptz | last update |
+- `participant_id`
+- `preferred_style_main`
+- `preferred_tone`
+- `preferred_imagery`
+- `profile_confidence`
+- `updated_at`
 
-## `card_interactions`
+### `user_daily_mood`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | deterministic event id |
-| `participant_id` | text | participant id |
-| `card_id` | text | may be empty for refresh |
-| `interaction_date` | date | Taipei date |
-| `action_type` | text | `view`, `select`, `refresh`, `favorite`, `diary_written` |
-| `selected_as_main` | boolean | true only for main daily card |
-| `diary_written` | boolean | true when the linked diary is completed |
-| `created_at` | timestamptz | event time |
+- `participant_id`
+- `selected_date`
+- `mood`
+- `created_at`
 
-## `daily_card_recommendations`
+### `user_daily_checkin`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | `${participant}-${date}-${rank}` |
-| `participant_id` | text | participant id |
-| `recommendation_date` | date | recommendation day |
-| `card_id` | text | recommended card |
-| `rank_order` | integer | 1 to 3 |
-| `strategy_type` | text | `preference_rule` or `neutral_fallback` |
-| `score_total` | numeric | heuristic score |
-| `reason_text` | text | simple recommendation reason |
+- `participant_id`
+- `selected_date`
+- `claimed_today`
+- `claim_season`
+- `created_at`
+- `updated_at`
 
-## `guided_diary_prompts`
+## M02
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | `${participant}-${date}` |
-| `participant_id` | text | participant id |
-| `prompt_date` | date | prompt day |
-| `main_card_id` | text | selected daily card |
-| `prompt_text` | text | writing prompt |
-| `status` | text | `ready`, `used`, `archived` |
+### `diary_entries`
 
-## `diary_entries`
+- `id`
+- `participant_id`
+- `entry_date`
+- `entry_text`
+- `entry_index`
+- `linked_card_id`
+- `risk_label`
+- `need_type`
+- `priority_score`
+- `priority_reason`
+- `manual_review`
+- `semantic_risk_score`
+- `analysis_status`
+- `model_version`
+- `rule_version`
+- `analysis_run_at`
+- `created_at`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | `${participant}-${date}` |
-| `participant_id` | text | participant id |
-| `entry_date` | date | diary day |
-| `entry_text` | text | elder text |
-| `linked_card_id` | text | chosen M01 card |
-| `risk_label` | text | E02 result |
-| `need_type` | text | E02 result |
-| `priority_score` | integer | E02 / E03 input |
-| `priority_reason` | text | E02 / E03 note |
-| `manual_review` | boolean | E02 flag |
-| `semantic_risk_score` | integer | E02 result |
-| `analysis_status` | text | `pending`, `analyzed`, `error` |
-| `model_version` | text | batch model version, e.g. `e02-v1` |
-| `rule_version` | text | queue/rule version, e.g. `jenny-queue-v1` |
-| `analysis_run_at` | timestamptz | latest import time |
-| `created_at` | timestamptz | creation time |
+### `egg_progress`
 
-## `egg_progress`
+- `participant_id`
+- `window_start`
+- `window_end`
+- `days_completed`
+- `egg_box_eligible`
+- `updated_at`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `participant_id` | text | primary key |
-| `window_start` | date | 14-day rolling start |
-| `window_end` | date | today |
-| `days_completed` | integer | unique completed diary days in window |
-| `egg_box_eligible` | boolean | true when `days_completed >= 10` |
-| `updated_at` | timestamptz | recalculation time |
+## M03
 
-## `partner_links`
+### `participants`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | internal primary key, mirrored to `link_id` |
-| `link_id` | text | public pair-link id |
-| `participant_id` | text | elder |
-| `partner_participant_id` | text | matched partner id or placeholder pool id |
-| `status` | text | `pending`, `matched`, `paused`, `closed` |
-| `link_type` | text | `care_pair`, `chat_pair` |
-| `match_status` | text | compatibility mirror of `status` |
-| `chat_enabled` | boolean | true only for chat-pair rows |
-| `updated_at` | timestamptz | latest change |
-| `created_at` | timestamptz | creation time |
+- `id`
+- `display_name`
+- `age_band`
+- `district`
+- `wants_partner`
+- `wants_reminders`
+- `wants_to_help_others`
+- `wants_to_be_cared_for`
+- `wants_chat_matching`
+- `is_little_angel`
+- `is_little_owner`
+- `free_owner_slots`
+- `extra_owner_slots`
+- `reminder_opt_in`
+- `care_ambassador_opt_in`
+- `wants_care`
+- `chat_match_opt_in`
+- `m03_completed_at`
+- `created_at`
+- `updated_at`
 
-## `care_events`
+### `partner_links`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `event_id` | text | primary key |
-| `participant_id` | text | event creator |
-| `target_participant_id` | text | target partner or placeholder pool |
-| `event_type` | text | `send_greeting`, `request_care`, `willing_to_call`, `mark_available`, `pause_matching` |
-| `note` | text | elder-friendly explanation or internal note |
-| `created_at` | timestamptz | event time |
+- `id`
+- `link_id`
+- `participant_id`
+- `partner_participant_id`
+- `angel_participant_id`
+- `owner_participant_id`
+- `status`
+- `link_type`
+- `match_status`
+- `chat_enabled`
+- `created_at`
+- `updated_at`
 
-## `community_info`
+### `care_events`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `info_id` | text | primary key |
-| `title` | text | display title |
-| `category` | text | `policy`, `neighborhood`, `temple`, `community` |
-| `description` | text | content summary |
-| `event_date` | date | optional date |
-| `location` | text | optional location |
-| `contact` | text | optional contact |
-| `status` | text | `active`, `draft`, `inactive` |
-| `created_at` | timestamptz | creation time |
-| `updated_at` | timestamptz | last update time |
+- `event_id`
+- `participant_id`
+- `target_participant_id`
+- `event_type`
+- `note`
+- `created_at`
 
-## `partner_prompt_queue`
+### `care_messages`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | primary key |
-| `participant_id` | text | elder |
-| `partner_participant_id` | text | linked partner or placeholder |
-| `trigger_type` | text | e.g. `silence_gap`, `priority_rising` |
-| `trigger_reason` | text | human-readable reason |
-| `status` | text | `partner_prompt`, `closed`, `needs_manual_routing` |
-| `model_version` | text | model version used when row was generated |
-| `rule_version` | text | rule version used when row was generated |
-| `created_at` | timestamptz | queue create time |
+- `id`
+- `sender_participant_id`
+- `receiver_participant_id`
+- `message_type`
+- `message_text`
+- `created_at`
 
-## `internal_review_queue`
+### `volunteer_requests`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | text | primary key |
-| `participant_id` | text | elder |
-| `trigger_type` | text | e.g. `high_priority`, `manual_review` |
-| `trigger_reason` | text | human-readable reason |
-| `priority_score` | integer | queue sort hint |
-| `status` | text | `pending_review`, `closed`, `needs_manual_routing` |
-| `model_version` | text | model version used when row was generated |
-| `rule_version` | text | rule version used when row was generated |
-| `created_at` | timestamptz | queue create time |
+- `id`
+- `participant_id`
+- `request_text`
+- `status`
+- `created_at`
+- `updated_at`
+
+### `user_reports`
+
+- `id`
+- `reporter_participant_id`
+- `target_participant_id`
+- `reason`
+- `created_at`
+
+### `user_blocks`
+
+- `id`
+- `blocker_participant_id`
+- `target_participant_id`
+- `created_at`
+
+## M04
+
+### `community_info`
+
+- `info_id`
+- `title`
+- `category`
+- `description`
+- `event_date`
+- `location`
+- `district`
+- `contact`
+- `status`
+- `created_at`
+- `updated_at`
+
+## Compatibility / Ops Tables
+
+### `daily_card_recommendations`
+
+- stores the 3-card snapshot sent to the user
+
+### `guided_diary_prompts`
+
+- stores the current prompt linked to the selected M01 card
+
+### `partner_prompt_queue`
+
+- internal partner prompt queue
+
+### `internal_review_queue`
+
+- internal review queue
+
+### `line_interaction_events`
+
+- webhook event/session audit trail
+
+### `line_diary_entries`
+
+- compatibility storage for LINE diary raw text

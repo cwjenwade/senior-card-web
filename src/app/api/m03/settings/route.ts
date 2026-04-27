@@ -30,10 +30,13 @@ export async function POST(request: NextRequest) {
     participantId,
     {
       display_name: asText(formData.get("displayName")) || participantId,
+      district: asText(formData.get("district")),
       wants_reminders: asBoolean(formData, "wantsReminders"),
       wants_to_help_others: asBoolean(formData, "wantsToHelpOthers"),
       wants_to_be_cared_for: asBoolean(formData, "wantsToBeCaredFor"),
       wants_chat_matching: asBoolean(formData, "wantsChatMatching"),
+      is_little_angel: asBoolean(formData, "wantsToHelpOthers"),
+      is_little_owner: asBoolean(formData, "wantsToBeCaredFor"),
       m03_completed_at: new Date().toISOString(),
     },
     { allowFallback: false },

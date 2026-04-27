@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
     description: asText(formData.get("description")),
     event_date: asText(formData.get("eventDate")) || null,
     location: asText(formData.get("location")),
+    district: asText(formData.get("district")),
     contact: asText(formData.get("contact")),
     status: asText(formData.get("status")) || "active",
     created_at: existing?.created_at ?? now,

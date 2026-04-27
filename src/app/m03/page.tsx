@@ -129,6 +129,10 @@ export default async function M03Page(props: { searchParams: SearchParams }) {
                     <span>稱呼</span>
                     <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={current.display_name} name="displayName" />
                   </label>
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span>行政區</span>
+                    <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={current.district} name="district" placeholder="例如：大安區" />
+                  </label>
                   <div className="grid gap-3 md:grid-cols-2">
                     <label className="flex items-center gap-3 rounded-2xl border border-stone-800 px-4 py-3 text-sm">
                       <input defaultChecked={current.wants_reminders} name="wantsReminders" type="checkbox" />
@@ -157,6 +161,7 @@ export default async function M03Page(props: { searchParams: SearchParams }) {
                 <h2 className="text-xl font-semibold">今天的狀態</h2>
                 <div className="mt-5 space-y-3 text-sm text-stone-300">
                   <p>今天日記：{completedToday ? "已完成" : "尚未完成"}</p>
+                  <p>行政區：{current.district || "未設定"}</p>
                   <p>提醒狀態：{current.wants_reminders ? "開啟" : "關閉"}</p>
                   <p>關懷角色：{current.wants_to_help_others ? "可成為關懷大使" : "暫不擔任關懷大使"}</p>
                   <p>被關懷：{current.wants_to_be_cared_for ? "願意" : "先不要"}</p>
@@ -250,6 +255,40 @@ export default async function M03Page(props: { searchParams: SearchParams }) {
                     <input name="redirectTo" type="hidden" value={`/m03?participant=${encodeURIComponent(current.id)}`} />
                     <button className="rounded-full border border-stone-700 px-4 py-2 text-sm text-stone-100" type="submit">
                       退出
+                    </button>
+                  </form>
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6">
+                <h2 className="text-xl font-semibold">志工 / 檢舉 / 封鎖</h2>
+                <div className="mt-6 space-y-4">
+                  <form action="/api/m03/actions" className="space-y-3" method="post">
+                    <input name="participantId" type="hidden" value={current.id} />
+                    <input name="intent" type="hidden" value="volunteer_request" />
+                    <input name="redirectTo" type="hidden" value={`/m03?participant=${encodeURIComponent(current.id)}`} />
+                    <textarea className="min-h-24 w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm" name="requestText" placeholder="想跟志工說什麼？" />
+                    <button className="rounded-full border border-cyan-700 px-4 py-2 text-sm text-cyan-100" type="submit">
+                      送出志工需求
+                    </button>
+                  </form>
+                  <form action="/api/m03/actions" className="space-y-3" method="post">
+                    <input name="participantId" type="hidden" value={current.id} />
+                    <input name="intent" type="hidden" value="report_user" />
+                    <input name="redirectTo" type="hidden" value={`/m03?participant=${encodeURIComponent(current.id)}`} />
+                    <input className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm" name="targetParticipantId" placeholder="要檢舉的對象 id" />
+                    <textarea className="min-h-20 w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm" name="reason" placeholder="檢舉原因" />
+                    <button className="rounded-full border border-amber-700 px-4 py-2 text-sm text-amber-100" type="submit">
+                      送出檢舉
+                    </button>
+                  </form>
+                  <form action="/api/m03/actions" className="space-y-3" method="post">
+                    <input name="participantId" type="hidden" value={current.id} />
+                    <input name="intent" type="hidden" value="block_user" />
+                    <input name="redirectTo" type="hidden" value={`/m03?participant=${encodeURIComponent(current.id)}`} />
+                    <input className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm" name="targetParticipantId" placeholder="要封鎖的對象 id" />
+                    <button className="rounded-full border border-rose-700 px-4 py-2 text-sm text-rose-100" type="submit">
+                      封鎖此人
                     </button>
                   </form>
                 </div>

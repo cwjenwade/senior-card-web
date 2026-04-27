@@ -1,6 +1,7 @@
 type M01Session = {
   line_user_id: string;
   session_id: string;
+  step: "idle" | "waiting_for_mood" | "waiting_for_series" | "waiting_for_card_selection" | "completed";
   mood_today: string;
   text_type_preference: string;
   visual_series_preference: string;
@@ -48,6 +49,7 @@ function createDefaultSession(lineUserId: string): M01Session {
   return {
     line_user_id: lineUserId,
     session_id: `m01-${lineUserId}-${Date.now()}`,
+    step: "idle",
     mood_today: "",
     text_type_preference: "",
     visual_series_preference: "",
@@ -139,6 +141,7 @@ export async function getSession(lineUserId: string) {
       return {
         line_user_id: row.user_id,
         session_id: row.session_id,
+        step: String(payload.step ?? "idle") as M01Session["step"],
         mood_today: String(payload.mood_today ?? ""),
         text_type_preference: String(payload.text_type_preference ?? ""),
         visual_series_preference: String(payload.visual_series_preference ?? ""),
@@ -180,6 +183,7 @@ export async function updateSession(lineUserId: string, patch: Partial<M01Sessio
       visual_series: next.visual_series_preference,
       payload: {
         module: "m01",
+        step: next.step,
         mood_today: next.mood_today,
         text_type_preference: next.text_type_preference,
         visual_series_preference: next.visual_series_preference,

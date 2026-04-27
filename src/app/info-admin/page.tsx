@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 type SearchParams = Promise<{
   category?: string;
   status?: string;
+  district?: string;
 }>;
 
 function valueOrAll(value?: string) {
@@ -27,6 +28,7 @@ export default async function InfoAdminPage(props: { searchParams: SearchParams 
   const filters = {
     category: valueOrAll(searchParams.category),
     status: valueOrAll(searchParams.status),
+    district: valueOrAll(searchParams.district),
   };
 
   const rows = await listCommunityInfo(filters);
@@ -78,6 +80,10 @@ export default async function InfoAdminPage(props: { searchParams: SearchParams 
               <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="location" />
             </label>
             <label className="flex flex-col gap-2 text-sm">
+              <span>district</span>
+              <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="district" placeholder="例如：大安區" />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
               <span>contact</span>
               <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" name="contact" />
             </label>
@@ -116,6 +122,7 @@ export default async function InfoAdminPage(props: { searchParams: SearchParams 
                   <option key={status} value={status}>{status}</option>
                 ))}
               </select>
+              <input className="rounded-full border border-stone-700 bg-stone-950 px-4 py-2" defaultValue={filters.district} name="district" placeholder="行政區" />
               <button className="rounded-full border border-stone-700 px-4 py-2 text-stone-100" type="submit">
                 套用篩選
               </button>
@@ -136,7 +143,7 @@ export default async function InfoAdminPage(props: { searchParams: SearchParams 
                   </div>
                   <form action="/api/admin/info" className="mt-4 grid gap-4 md:grid-cols-2" method="post">
                     <input name="infoId" type="hidden" value={row.info_id} />
-                    <input name="redirectTo" type="hidden" value={`/info-admin?category=${encodeURIComponent(filters.category)}&status=${encodeURIComponent(filters.status)}`} />
+                      <input name="redirectTo" type="hidden" value={`/info-admin?category=${encodeURIComponent(filters.category)}&status=${encodeURIComponent(filters.status)}&district=${encodeURIComponent(filters.district)}`} />
                     <label className="flex flex-col gap-2 text-sm">
                       <span>title</span>
                       <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={row.title} name="title" required />
@@ -160,6 +167,10 @@ export default async function InfoAdminPage(props: { searchParams: SearchParams 
                     <label className="flex flex-col gap-2 text-sm">
                       <span>location</span>
                       <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={row.location} name="location" />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm">
+                      <span>district</span>
+                      <input className="rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3" defaultValue={row.district} name="district" />
                     </label>
                     <label className="flex flex-col gap-2 text-sm">
                       <span>contact</span>

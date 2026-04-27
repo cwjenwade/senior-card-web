@@ -5,7 +5,10 @@ import {
   hasRequiredTables,
   listPartnerLinks,
   recordCareEvent,
+  recordUserBlock,
+  recordUserReport,
   syncM03Pairs,
+  upsertVolunteerRequest,
   upsertParticipant,
   upsertPartnerLink,
   type PartnerLinkRow,
@@ -31,7 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/m03?error=missing-participant", request.url), 303);
   }
 
-  const remoteReady = await hasRequiredTables(["participants", "partner_links", "care_events"]);
+  const remoteReady = await hasRequiredTables(["participants", "partner_links", "care_events", "volunteer_requests", "user_reports", "user_blocks"]);
   if (!remoteReady) {
     return NextResponse.redirect(new URL(`/m03?participant=${encodeURIComponent(participantId)}&error=remote-schema-not-ready`, request.url), 303);
   }
@@ -75,6 +78,54 @@ export async function POST(request: NextRequest) {
 
     if (intent === "mark_available") {
       await syncM03Pairs(participantId, { allowFallback: false });
+    }
+    return NextResponse.redirect(new URL(redirectTo, request.url), 303);
+  }
+
+  if (intent === "volunteer_request") {
+    await upsertVolunteerRequest(
+      {
+        id: `vr-${participantId}-${Date.now()}`,
+        participant_id: participantId,
+        request_text: asText(formData.get("requestText")) || "想和志工聊聊",
+        status: "open",
+        created_at: now,
+        updated_at: now,
+      },
+      { allowFallback: false },
+    );
+    return NextResponse.redirect(new URL(redirectTo, request.url), 303);
+  }
+
+  if (intent === "report_user") {
+    const targetId = asText(formData.get("targetParticipantId")) || chatLink?.partner_participant_id || careLink?.partner_participant_id;
+    if (targetId) {
+      await recordUserReport(
+        {
+          id: `report-${participantId}-${Date.now()}`,
+          reporter_participant_id: participantId,
+          target_participant_id: targetId,
+          reason: asText(formData.get("reason")) || "未填寫原因",
+          created_at: now,
+        },
+        { allowFallback: false },
+      );
+    }
+    return NextResponse.redirect(new URL(redirectTo, request.url), 303);
+  }
+
+  if (intent === "block_user") {
+    const targetId = asText(formData.get("targetParticipantId")) || chatLink?.partner_participant_id || careLink?.partner_participant_id;
+    if (targetId) {
+      await recordUserBlock(
+        {
+          id: `block-${participantId}-${Date.now()}`,
+          blocker_participant_id: participantId,
+          target_participant_id: targetId,
+          created_at: now,
+        },
+        { allowFallback: false },
+      );
     }
     return NextResponse.redirect(new URL(redirectTo, request.url), 303);
   }
