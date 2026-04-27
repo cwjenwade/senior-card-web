@@ -1,6 +1,6 @@
 # Data Dictionary
 
-Updated on 2026-04-27.
+Updated on 2026-04-28.
 
 This file reflects the formal Jenny product schema used by the website admin and LINE modules.
 
@@ -13,6 +13,7 @@ This file reflects the formal Jenny product schema used by the website admin and
 - `image_provider`: should be `cloudinary` for formal uploads
 - `image_url`: Cloudinary secure URL
 - `image_key`: Cloudinary public id
+- `series`: formal series field
 - `style_main`: card copy style
 - `style_sub`: sub-style label
 - `tone`: emotional tone

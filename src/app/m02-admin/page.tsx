@@ -15,6 +15,8 @@ export default async function M02AdminPage() {
       progress: await getEggProgress(participant.id, today),
     })),
   );
+  const userCount = new Set(entries.map((entry) => entry.participant_id)).size;
+  const eligibleCount = progressRows.filter((row) => row.progress?.egg_box_eligible).length;
 
   return (
     <main className="min-h-screen bg-stone-950 text-stone-100">
@@ -33,11 +35,29 @@ export default async function M02AdminPage() {
         </header>
 
         <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-3xl border border-stone-800 p-5">
+              <p className="text-sm text-stone-400">使用日記人數</p>
+              <p className="mt-2 text-3xl font-semibold">{userCount}</p>
+            </div>
+            <div className="rounded-3xl border border-stone-800 p-5">
+              <p className="text-sm text-stone-400">日記總數</p>
+              <p className="mt-2 text-3xl font-semibold">{entries.length}</p>
+            </div>
+            <div className="rounded-3xl border border-stone-800 p-5">
+              <p className="text-sm text-stone-400">雞蛋達標人數</p>
+              <p className="mt-2 text-3xl font-semibold">{eligibleCount}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6">
           <h2 className="text-xl font-semibold">14 天進度</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {progressRows.map(({ participant, progress }) => (
               <article className="rounded-3xl border border-stone-800 p-5" key={participant.id}>
                 <h3 className="text-lg font-semibold">{participant.display_name || participant.id}</h3>
+                <p className="mt-1 text-xs text-stone-500">日記次數：{entries.filter((entry) => entry.participant_id === participant.id).length}</p>
                 <p className="mt-2 text-sm text-stone-300">14 天完成：{progress?.days_completed ?? 0} 天</p>
                 <p className="mt-1 text-sm text-stone-300">雞蛋資格：{progress?.egg_box_eligible ? "已達標" : "未達標"}</p>
               </article>

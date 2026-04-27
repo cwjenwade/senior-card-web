@@ -1,3 +1,12 @@
+alter table if exists public.card_catalog add column if not exists series text not null default '';
+update public.card_catalog
+set series = case
+  when series <> '' then series
+  when imagery is not null and imagery <> '' then imagery
+  else coalesce(visual_series, '')
+end
+where series = '';
+
 alter table if exists public.participants add column if not exists district text not null default '';
 alter table if exists public.participants add column if not exists is_little_angel boolean not null default false;
 alter table if exists public.participants add column if not exists is_little_owner boolean not null default false;

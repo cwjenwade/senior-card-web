@@ -17,7 +17,10 @@ import {
   normalizeDiaryAnalysis,
   recalculateEggProgress,
   recordCareEvent,
+  recordCareMessage,
   recordCardInteraction,
+  recordUserBlock,
+  recordUserReport,
   runQueueDetection,
   saveDailyRecommendations,
   syncM03Pairs,
@@ -26,6 +29,7 @@ import {
   upsertParticipant,
   upsertUserDailyCheckin,
   upsertUserDailyMood,
+  upsertVolunteerRequest,
 } from "@/lib/jenny-product-store";
 import { listCards, type CardAsset } from "@/lib/m01-cards";
 import { getRecentShownCardIds, getSession, hasCompletedM01Today, markM01Completed, recordCardFeedback, updateSession } from "@/lib/m01-session-store";
@@ -78,7 +82,11 @@ type ParsedPostback = {
 
 const M01_TEXT_TRIGGERS = new Set(["製作長輩圖", "長輩圖", "今日長輩圖", "m01"]);
 const M02_TEXT_TRIGGERS = new Set(["寫日記換雞蛋", "寫日記", "看圖寫一句", "今日日記", "m02"]);
+const M02_HISTORY_TEXT_TRIGGERS = new Set(["日記紀錄", "我的日記", "日記歷史", "看日記紀錄"]);
 const M03_TEXT_TRIGGERS = new Set(["關懷與配對", "關懷大使", "好友配對", "我的小檔案", "m03"]);
+const M03_VOLUNTEER_TEXT_TRIGGERS = new Set(["志工協助", "找志工", "志工聊天"]);
+const M03_REPORT_TEXT_TRIGGERS = new Set(["檢舉", "我要檢舉"]);
+const M03_BLOCK_TEXT_TRIGGERS = new Set(["封鎖", "我要封鎖"]);
 const M04_TEXT_TRIGGERS = new Set(["最新活動與政策", "活動資訊", "政策資訊", "社區資訊", "m04"]);
 const EGG_TEXT_TRIGGERS = new Set(["我的雞蛋進度", "雞蛋進度", "egg"]);
 const MIN_DIARY_CJK = 50;
@@ -258,6 +266,32 @@ function buildM01SeriesQuickReply() {
   );
 }
 
+function buildM02HistoryCarousel(entries: Awaited<ReturnType<typeof listDiaryEntries>>) {
+  return {
+    type: "flex",
+    altText: "日記紀錄",
+    contents: {
+      type: "carousel",
+      contents: entries.slice(0, 10).map((entry) => ({
+        type: "bubble",
+        body: {
+          type: "box",
+          layout: "vertical",
+          spacing: "md",
+          contents: [
+            { type: "text", text: entry.entry_date, size: "sm", color: "#92400e", weight: "bold" },
+            { type: "text", text: `第 ${entry.entry_index || 1} 則`, size: "xs", color: "#78716c" },
+            { type: "text", text: entry.entry_text, size: "sm", wrap: true, color: "#292524" },
+          ],
+        },
+        styles: {
+          body: { backgroundColor: "#fffbeb" },
+        },
+      })),
+    },
+  };
+}
+
 function buildM04CategoryCarousel(category: string, rows: Awaited<ReturnType<typeof listCommunityInfo>>) {
   const label = m04CategoryLabel(category);
   const contents = (rows.length ? rows : [{ info_id: `${category}-empty`, title: "目前還沒有上架中的資訊", description: `${label}目前還沒有上架中的資訊。`, event_date: null, location: "", district: "", contact: "", status: "active", category: category as "policy" | "neighborhood" | "temple" | "community", created_at: "", updated_at: "" }]).slice(0, 10);
@@ -382,6 +416,7 @@ function buildM03SummaryText(
     `希望被關懷：${settings.wantsToBeCaredFor ? "願意" : "先不要"}`,
     `聊天配對：${settings.wantsChatMatching ? "願意加入" : "未加入"}`,
     `目前配對：${linkSummary.length ? linkSummary.join("、") : "尚未配對"}`,
+    "可輸入：志工協助 / 檢舉 / 封鎖",
   ].join("\n");
 }
 
@@ -610,6 +645,25 @@ async function handleEggProgress(replyToken: string, lineUserId: string) {
       text: progress
         ? `我的雞蛋進度\n今天是否完成：${(await hasCompletedToday(lineUserId, today)) ? "已完成" : "尚未完成"}\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`
         : "目前還沒有兩週進度資料，今天先寫一句吧。",
+    },
+  ]);
+}
+
+async function handleM02History(replyToken: string, lineUserId: string) {
+  const entries = await listDiaryEntries(lineUserId);
+  if (entries.length === 0) {
+    await replyToLine(replyToken, [{ type: "text", text: "目前還沒有日記紀錄。直接在對話框輸入 50 個字以上，就會自動存成日記。" }]);
+    return;
+  }
+
+  await replyToLine(replyToken, [
+    buildM02HistoryCarousel(entries),
+    {
+      type: "text",
+      text: `這裡是你最近的 ${Math.min(entries.length, 10)} 則日記紀錄。`,
+      quickReply: buildFourButtonQuickReply([
+        { label: "再寫一則", data: "module=m02&action=start", displayText: "再寫一則" },
+      ]),
     },
   ]);
 }
@@ -946,6 +1000,9 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
     {
       type: "text",
       text: `已收到今天的日記。\n今天已完成。\n${summarizeEggProgress(progress.days_completed, progress.egg_box_eligible)}`,
+      quickReply: buildFourButtonQuickReply([
+        { label: "看日記紀錄", data: "module=m02&action=history", displayText: "看日記紀錄" },
+      ]),
     },
   ]);
 }
@@ -1130,7 +1187,112 @@ async function handleM03CareEvent(replyToken: string, lineUserId: string, payloa
     { allowFallback: false },
   );
 
+  if (targetParticipantId && !targetParticipantId.endsWith("-pool")) {
+    await recordCareMessage(
+      {
+        id: `care-message-${lineUserId}-${Date.now()}`,
+        sender_participant_id: lineUserId,
+        receiver_participant_id: targetParticipantId,
+        message_type: intent,
+        message_text: note,
+        created_at: new Date().toISOString(),
+      },
+      { allowFallback: false },
+    );
+  }
+
   await replyToLine(replyToken, [{ type: "text", text: `${note}，已經替你記下來了。` }]);
+}
+
+async function handleM03VolunteerTrigger(replyToken: string, lineUserId: string) {
+  await updateM03Session(lineUserId, {
+    session_id: (await getM03Session(lineUserId))?.session_id || createM03SessionId(lineUserId),
+    step: "waiting_for_volunteer_request",
+  });
+  await replyToLine(replyToken, [{ type: "text", text: "請直接輸入你想告訴志工的需求內容，我會幫你送出。" }]);
+}
+
+async function handleM03VolunteerInput(replyToken: string, lineUserId: string, text: string) {
+  const now = new Date().toISOString();
+  await upsertVolunteerRequest(
+    {
+      id: `vr-${lineUserId}-${Date.now()}`,
+      participant_id: lineUserId,
+      request_text: text.trim(),
+      status: "open",
+      created_at: now,
+      updated_at: now,
+    },
+    { allowFallback: false },
+  );
+  await updateM03Session(lineUserId, { step: "idle" });
+  await replyToLine(replyToken, [{ type: "text", text: "已送出志工需求，我們會再協助安排。" }]);
+}
+
+async function handleM03ReportTrigger(replyToken: string, lineUserId: string) {
+  await updateM03Session(lineUserId, {
+    session_id: (await getM03Session(lineUserId))?.session_id || createM03SessionId(lineUserId),
+    step: "waiting_for_report_reason",
+  });
+  await replyToLine(replyToken, [{ type: "text", text: "請用「對象id 空格 原因」的格式輸入檢舉內容。例：U123456 言語騷擾" }]);
+}
+
+async function handleM03ReportInput(replyToken: string, lineUserId: string, text: string) {
+  const [targetParticipantId, ...reasonParts] = text.trim().split(/\s+/u);
+  const reason = reasonParts.join(" ").trim();
+  if (!targetParticipantId || !reason) {
+    await replyToLine(replyToken, [{ type: "text", text: "格式不完整，請用「對象id 空格 原因」重新輸入。" }]);
+    return;
+  }
+  const targetParticipant = await getParticipant(targetParticipantId, { allowFallback: false });
+  if (!targetParticipant) {
+    await replyToLine(replyToken, [{ type: "text", text: "找不到這個對象 id，請確認後再輸入一次。" }]);
+    return;
+  }
+  await recordUserReport(
+    {
+      id: `report-${lineUserId}-${Date.now()}`,
+      reporter_participant_id: lineUserId,
+      target_participant_id: targetParticipantId,
+      reason,
+      created_at: new Date().toISOString(),
+    },
+    { allowFallback: false },
+  );
+  await updateM03Session(lineUserId, { step: "idle" });
+  await replyToLine(replyToken, [{ type: "text", text: "已收到檢舉內容，平台會再進一步處理。" }]);
+}
+
+async function handleM03BlockTrigger(replyToken: string, lineUserId: string) {
+  await updateM03Session(lineUserId, {
+    session_id: (await getM03Session(lineUserId))?.session_id || createM03SessionId(lineUserId),
+    step: "waiting_for_block_target",
+  });
+  await replyToLine(replyToken, [{ type: "text", text: "請直接輸入要封鎖的對象 id。" }]);
+}
+
+async function handleM03BlockInput(replyToken: string, lineUserId: string, text: string) {
+  const targetParticipantId = text.trim();
+  if (!targetParticipantId) {
+    await replyToLine(replyToken, [{ type: "text", text: "請先輸入要封鎖的對象 id。" }]);
+    return;
+  }
+  const targetParticipant = await getParticipant(targetParticipantId, { allowFallback: false });
+  if (!targetParticipant) {
+    await replyToLine(replyToken, [{ type: "text", text: "找不到這個對象 id，請確認後再輸入一次。" }]);
+    return;
+  }
+  await recordUserBlock(
+    {
+      id: `block-${lineUserId}-${Date.now()}`,
+      blocker_participant_id: lineUserId,
+      target_participant_id: targetParticipantId,
+      created_at: new Date().toISOString(),
+    },
+    { allowFallback: false },
+  );
+  await updateM03Session(lineUserId, { step: "idle" });
+  await replyToLine(replyToken, [{ type: "text", text: `已封鎖 ${targetParticipantId}。若有需要，也可再輸入「檢舉」補充原因。` }]);
 }
 
 async function handleM04Start(replyToken: string, lineUserId: string, category = "") {
@@ -1206,6 +1368,10 @@ async function handlePostback(request: NextRequest, replyToken: string, lineUser
     await handleM02Start(replyToken, lineUserId);
     return;
   }
+  if (payload.module === "m02" && payload.action === "history") {
+    await handleM02History(replyToken, lineUserId);
+    return;
+  }
   if (payload.module === "egg") {
     await handleEggProgress(replyToken, lineUserId);
     return;
@@ -1269,8 +1435,24 @@ async function handleTextMessage(request: NextRequest, event: Extract<LineEvent,
     await handleM02Start(event.replyToken, lineUserId);
     return;
   }
+  if (M02_HISTORY_TEXT_TRIGGERS.has(text) || M02_HISTORY_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM02History(event.replyToken, lineUserId);
+    return;
+  }
   if (M03_TEXT_TRIGGERS.has(text) || M03_TEXT_TRIGGERS.has(lowerText)) {
     await handleM03Start(request, event.replyToken, lineUserId);
+    return;
+  }
+  if (M03_VOLUNTEER_TEXT_TRIGGERS.has(text) || M03_VOLUNTEER_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM03VolunteerTrigger(event.replyToken, lineUserId);
+    return;
+  }
+  if (M03_REPORT_TEXT_TRIGGERS.has(text) || M03_REPORT_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM03ReportTrigger(event.replyToken, lineUserId);
+    return;
+  }
+  if (M03_BLOCK_TEXT_TRIGGERS.has(text) || M03_BLOCK_TEXT_TRIGGERS.has(lowerText)) {
+    await handleM03BlockTrigger(event.replyToken, lineUserId);
     return;
   }
   if (M04_TEXT_TRIGGERS.has(text) || M04_TEXT_TRIGGERS.has(lowerText)) {
@@ -1284,6 +1466,18 @@ async function handleTextMessage(request: NextRequest, event: Extract<LineEvent,
 
   if (m03Session?.step === "waiting_for_name") {
     await handleM03NameInput(request, event.replyToken, lineUserId, text);
+    return;
+  }
+  if (m03Session?.step === "waiting_for_volunteer_request") {
+    await handleM03VolunteerInput(event.replyToken, lineUserId, text);
+    return;
+  }
+  if (m03Session?.step === "waiting_for_report_reason") {
+    await handleM03ReportInput(event.replyToken, lineUserId, text);
+    return;
+  }
+  if (m03Session?.step === "waiting_for_block_target") {
+    await handleM03BlockInput(event.replyToken, lineUserId, text);
     return;
   }
 

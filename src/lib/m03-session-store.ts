@@ -3,7 +3,16 @@ import { canUseSupabase, supabaseInsert, supabaseSelect } from "@/lib/supabase-r
 type M03Session = {
   line_user_id: string;
   session_id: string;
-  step: "idle" | "waiting_for_name" | "waiting_for_reminder" | "waiting_for_ambassador" | "waiting_for_care" | "waiting_for_chat";
+  step:
+    | "idle"
+    | "waiting_for_name"
+    | "waiting_for_reminder"
+    | "waiting_for_ambassador"
+    | "waiting_for_care"
+    | "waiting_for_chat"
+    | "waiting_for_volunteer_request"
+    | "waiting_for_report_reason"
+    | "waiting_for_block_target";
   display_name: string;
   reminder_opt_in: string;
   care_ambassador_opt_in: string;

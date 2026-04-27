@@ -42,6 +42,7 @@ create table if not exists public.card_catalog (
   image_provider text not null default 'external',
   image_url text not null default '',
   image_key text not null default '',
+  series text not null default '',
   style_main text not null,
   style_sub text not null default '',
   tone text not null default '',
@@ -69,6 +70,7 @@ create table if not exists public.card_catalog (
 alter table if exists public.card_catalog add column if not exists image_provider text not null default 'external';
 alter table if exists public.card_catalog add column if not exists image_url text not null default '';
 alter table if exists public.card_catalog add column if not exists image_key text not null default '';
+alter table if exists public.card_catalog add column if not exists series text not null default '';
 alter table if exists public.card_catalog add column if not exists default_prompt text not null default '';
 alter table if exists public.card_catalog add column if not exists uploaded_by text not null default 'system';
 

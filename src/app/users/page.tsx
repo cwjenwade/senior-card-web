@@ -47,6 +47,7 @@ export default async function UsersPage() {
                     <p>今日打卡：{checkin ? "已建立" : "尚未建立"}</p>
                     <p>今日領取：{checkin?.claimed_today ? "已領取" : "尚未領取"}</p>
                     <p>季度：{checkin?.claim_season || "未建立"}</p>
+                    <p>M03 角色：{participant.is_little_angel ? "小天使" : "未開啟"} / {participant.is_little_owner ? "小主人" : "未開啟"}</p>
                   </div>
                 </article>
               ))

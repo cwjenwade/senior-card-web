@@ -1,6 +1,6 @@
 # Jenny Delivery Report
 
-Date: 2026-04-27
+Date: 2026-04-28
 Project: `/Users/wade/Developer/Jenny/senior-card-web`
 
 ## 這次實際修改
@@ -28,18 +28,23 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 - M02 diary auto-detects 50+ characters and enforces 10-entry cap
 - M02 `entry_index` now written to `diary_entries`
 - M02 egg progress changed to 14-day threshold
+- M02 now supports LINE diary-history carousel
 - M03 settings now persist district and little angel / little owner role flags
 - M03 actions API now writes volunteer requests, reports, and blocks
+- M03 LINE now supports text-driven volunteer / report / block flows
+- care-message counts now write into `care_messages`
 - M04 now replies with carousel content and district-aware filtering
 
 ## 驗證
 
 - `npm run lint` passed
 - `npm run build` passed
+- local Cloudinary helper upload passed with `.env.local`
 
 ## 手動設定
 
-Cloudinary still requires formal environment variables:
+Local development already has working Cloudinary variables in `.env.local`.
+You only need to set Cloudinary again in production / deployment environments:
 
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`

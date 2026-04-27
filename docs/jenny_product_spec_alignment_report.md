@@ -1,6 +1,6 @@
 # Jenny Product Spec Alignment Report
 
-Date: 2026-04-27
+Date: 2026-04-28
 Project: `/Users/wade/Developer/Jenny/senior-card-web`
 
 ## 已完成
@@ -41,6 +41,7 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 - `partner_links.owner_participant_id`
 - `diary_entries.entry_index`
 - `community_info.district`
+- `card_catalog.series`
 
 ### M01
 
@@ -60,6 +61,7 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 - 已補每位 user 最高 10 次限制
 - `/m02-admin` 可查日記與雞蛋進度
 - 雞蛋規則改為 14 天
+- LINE 已可用 carousel 查看最近日記紀錄
 
 ### M03
 
@@ -67,6 +69,7 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 - `/m03` 可編輯行政區
 - `/m03-admin` 可看角色、配對、志工需求、檢舉、封鎖
 - `/api/m03/actions` 已可寫入志工需求、檢舉、封鎖
+- LINE 已可用文字流程送出志工需求、檢舉、封鎖
 - 配對邏輯已加免費名額欄位與 5 位上限判斷基礎
 
 ### M04
@@ -90,11 +93,6 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 - 舊資料 `神佛系列 / 山林系列` 已做相容映射
 - 目前季度限制已可阻擋重複領取，但是否要保留「同季不可再領」或再細分補領規則，後續若有更明確營運規則仍可再細修
 
-### M02
-
-- 目前是 webhook 層自動判定 50 字以上文字為日記
-- 後台已有列表可看，但尚未另外做 LINE carousel 歷史回顧輸出
-
 ### M03
 
 - 已有名額欄位與基礎判斷
@@ -105,8 +103,7 @@ Project: `/Users/wade/Developer/Jenny/senior-card-web`
 
 - Cloudinary 需要正式環境變數才可真的上傳
 - 尚未接金流
-- 尚未做完整的 LINE 端 M03 志工 / 檢舉 / 封鎖互動按鈕流程
-- M02 LINE 歷史 carousel 尚未補
+- 尚未做完整的 LINE 端 M03 按鈕化引導，目前以文字流程為主
 
 ## 已建資料表
 

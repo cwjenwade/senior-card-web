@@ -5,6 +5,7 @@ import {
   hasRequiredTables,
   listPartnerLinks,
   recordCareEvent,
+  recordCareMessage,
   recordUserBlock,
   recordUserReport,
   syncM03Pairs,
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/m03?error=missing-participant", request.url), 303);
   }
 
-  const remoteReady = await hasRequiredTables(["participants", "partner_links", "care_events", "volunteer_requests", "user_reports", "user_blocks"]);
+  const remoteReady = await hasRequiredTables(["participants", "partner_links", "care_events", "care_messages", "volunteer_requests", "user_reports", "user_blocks"]);
   if (!remoteReady) {
     return NextResponse.redirect(new URL(`/m03?participant=${encodeURIComponent(participantId)}&error=remote-schema-not-ready`, request.url), 303);
   }
@@ -76,6 +77,27 @@ export async function POST(request: NextRequest) {
       { allowFallback: false },
     );
 
+    if (target && !target.endsWith("-pool")) {
+      await recordCareMessage(
+        {
+          id: `care-message-${participantId}-${Date.now()}`,
+          sender_participant_id: participantId,
+          receiver_participant_id: target,
+          message_type: intent,
+          message_text:
+            intent === "send_greeting"
+              ? "送出今天的問候"
+              : intent === "request_care"
+                ? "今天想找人聊聊"
+                : intent === "willing_to_call"
+                  ? "今天願意打電話關心人"
+                  : "今天可以被安排關懷任務",
+          created_at: now,
+        },
+        { allowFallback: false },
+      );
+    }
+
     if (intent === "mark_available") {
       await syncM03Pairs(participantId, { allowFallback: false });
     }
@@ -99,7 +121,8 @@ export async function POST(request: NextRequest) {
 
   if (intent === "report_user") {
     const targetId = asText(formData.get("targetParticipantId")) || chatLink?.partner_participant_id || careLink?.partner_participant_id;
-    if (targetId) {
+    const targetParticipant = targetId ? await getParticipant(targetId, { allowFallback: false }) : null;
+    if (targetId && targetParticipant) {
       await recordUserReport(
         {
           id: `report-${participantId}-${Date.now()}`,
@@ -110,13 +133,16 @@ export async function POST(request: NextRequest) {
         },
         { allowFallback: false },
       );
+    } else {
+      return NextResponse.redirect(new URL(`/m03?participant=${encodeURIComponent(participantId)}&error=participant-not-found`, request.url), 303);
     }
     return NextResponse.redirect(new URL(redirectTo, request.url), 303);
   }
 
   if (intent === "block_user") {
     const targetId = asText(formData.get("targetParticipantId")) || chatLink?.partner_participant_id || careLink?.partner_participant_id;
-    if (targetId) {
+    const targetParticipant = targetId ? await getParticipant(targetId, { allowFallback: false }) : null;
+    if (targetId && targetParticipant) {
       await recordUserBlock(
         {
           id: `block-${participantId}-${Date.now()}`,
@@ -126,6 +152,8 @@ export async function POST(request: NextRequest) {
         },
         { allowFallback: false },
       );
+    } else {
+      return NextResponse.redirect(new URL(`/m03?participant=${encodeURIComponent(participantId)}&error=participant-not-found`, request.url), 303);
     }
     return NextResponse.redirect(new URL(redirectTo, request.url), 303);
   }

@@ -55,6 +55,7 @@ export type CardCatalogRow = {
   image_provider?: string;
   image_url: string;
   image_key?: string;
+  series?: string;
   style_main: TextType;
   style_sub: string;
   tone: CardAsset["tone"];
@@ -278,6 +279,7 @@ function normalizeRow(row: CardCatalogRow): CardCatalogRow {
     image_provider: row.image_provider || "external",
     image_url: row.image_url || "",
     image_key: row.image_key || "",
+    series: normalizeVisualSeries(String(row.series || row.imagery || row.visual_series || "花系列")),
     style_main: row.style_main || row.text_type || "問安語",
     style_sub: row.style_sub || "",
     tone: row.tone || "溫和",
@@ -353,6 +355,7 @@ function toRow(input: CardCatalogUpsertInput, existing?: CardCatalogRow): CardCa
     image_provider: input.imageProvider || existing?.image_provider || "external",
     image_url: input.imageUrl,
     image_key: input.imageKey || existing?.image_key || "",
+    series: input.imagery,
     style_main: input.styleMain,
     style_sub: input.styleSub,
     tone: input.tone,
@@ -451,6 +454,7 @@ export async function getCardCatalogRowById(cardId: string) {
     image_provider: found.imageProvider,
     image_url: found.imageUrl,
     image_key: found.imageKey,
+    series: found.imagery,
     style_main: found.styleMain,
     style_sub: found.styleSub,
     tone: found.tone,
@@ -489,6 +493,7 @@ export async function upsertCardCatalog(input: CardCatalogUpsertInput) {
           style_main: row.style_main,
           style_sub: row.style_sub,
           tone: row.tone,
+          series: row.series,
           imagery: row.imagery,
           text_density: row.text_density,
           energy_level: row.energy_level,
