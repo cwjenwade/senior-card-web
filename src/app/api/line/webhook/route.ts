@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
 import { NextRequest, NextResponse } from "next/server";
 
 import {
@@ -79,6 +80,27 @@ const M04_TEXT_TRIGGERS = new Set(["最新活動與政策", "活動資訊", "政
 const EGG_TEXT_TRIGGERS = new Set(["我的雞蛋進度", "雞蛋進度", "egg"]);
 const MIN_DIARY_CJK = 50;
 const MAX_DIARY_CJK = 300;
+const LINE_WEBHOOK_TRACE = process.env.LINE_WEBHOOK_TRACE === "1";
+
+function traceLineWebhook(event: string, payload: Record<string, unknown>) {
+  if (!LINE_WEBHOOK_TRACE) return;
+  console.log(`[line-webhook-trace] ${JSON.stringify({ event, ...payload })}`);
+}
+
+function summarizeReplyMessages(messages: unknown[]) {
+  return messages.map((message) => {
+    if (!message || typeof message !== "object") {
+      return { type: typeof message };
+    }
+
+    const row = message as Record<string, unknown>;
+    return {
+      type: typeof row.type === "string" ? row.type : "unknown",
+      altText: typeof row.altText === "string" ? row.altText : undefined,
+      text: typeof row.text === "string" ? row.text.slice(0, 80) : undefined,
+    };
+  });
+}
 
 function parsePostback(data: string): ParsedPostback {
   const params = new URLSearchParams(data);
@@ -107,17 +129,68 @@ async function replyToLine(replyToken: string, messages: unknown[]) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
 
-  const response = await fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ replyToken, messages }),
+  traceLineWebhook("reply.attempt", {
+    replyToken,
+    messages: summarizeReplyMessages(messages),
+    rawMessages: messages,
+  });
+
+  const payload = JSON.stringify({ replyToken, messages });
+
+  const response = await new Promise<{ ok: boolean; status: number; statusText: string; body: string }>((resolve, reject) => {
+    execFile(
+      "curl",
+      [
+        "--silent",
+        "--show-error",
+        "--connect-timeout",
+        "10",
+        "--max-time",
+        "30",
+        "-X",
+        "POST",
+        "https://api.line.me/v2/bot/message/reply",
+        "-H",
+        `Authorization: Bearer ${token}`,
+        "-H",
+        "Content-Type: application/json",
+        "--data-binary",
+        payload,
+        "-w",
+        "\n%{http_code}",
+      ],
+      { maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || error.message));
+          return;
+        }
+
+        const output = stdout.trimEnd();
+        const lastNewline = output.lastIndexOf("\n");
+        const body = lastNewline >= 0 ? output.slice(0, lastNewline) : "";
+        const statusText = "";
+        const status = Number(lastNewline >= 0 ? output.slice(lastNewline + 1) : output) || 500;
+
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          statusText,
+          body,
+        });
+      },
+    );
+  });
+
+  traceLineWebhook("reply.result", {
+    replyToken,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
   });
 
   if (!response.ok) {
-    throw new Error(`LINE reply failed: ${response.status} ${await response.text()}`);
+    throw new Error(`LINE reply failed: ${response.status} ${response.body}`);
   }
 }
 
@@ -574,6 +647,7 @@ async function handleEggProgress(replyToken: string, lineUserId: string) {
 }
 
 async function handleM01Start(request: NextRequest, replyToken: string, lineUserId: string, forceRefresh = false) {
+  traceLineWebhook("handler.selected", { handler: "handleM01Start", lineUserId, forceRefresh });
   const today = getTodayInTaipei();
   await ensureParticipantSeed(lineUserId);
 
@@ -745,6 +819,7 @@ async function handleM01Favorite(replyToken: string, lineUserId: string, payload
 }
 
 async function handleM02Start(replyToken: string, lineUserId: string) {
+  traceLineWebhook("handler.selected", { handler: "handleM02Start", lineUserId });
   const today = getTodayInTaipei();
   const prompt = await getGuidedDiaryPrompt(lineUserId, today);
   const progress = await getEggProgress(lineUserId, today);
@@ -782,6 +857,7 @@ async function handleM02Start(replyToken: string, lineUserId: string) {
 }
 
 async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawText: string) {
+  traceLineWebhook("handler.selected", { handler: "handleM02DiaryInput", lineUserId });
   const session = await getM02Session(lineUserId);
   if (session?.status !== "waiting_for_diary") {
     await replyToLine(replyToken, [unknownMessage()]);
@@ -870,6 +946,7 @@ async function handleM02DiaryInput(replyToken: string, lineUserId: string, rawTe
 }
 
 async function handleM03Start(request: NextRequest, replyToken: string, lineUserId: string) {
+  traceLineWebhook("handler.selected", { handler: "handleM03Start", lineUserId });
   if (!(await ensureM03RemoteReady())) {
     await replyToLine(replyToken, [
       buildM03IntroFlex("服務還在整理中，正式上線前先用這個模板說明內容。"),
@@ -922,6 +999,7 @@ async function handleM03Start(request: NextRequest, replyToken: string, lineUser
 }
 
 async function handleM03NameInput(request: NextRequest, replyToken: string, lineUserId: string, text: string) {
+  traceLineWebhook("handler.selected", { handler: "handleM03NameInput", lineUserId });
   const nextSession = await updateM03Session(lineUserId, {
     step: "waiting_for_reminder",
     display_name: text.trim(),
@@ -931,6 +1009,7 @@ async function handleM03NameInput(request: NextRequest, replyToken: string, line
 }
 
 async function handleM03SettingChoice(replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  traceLineWebhook("handler.selected", { handler: "handleM03SettingChoice", lineUserId, setting: payload.setting, value: payload.value });
   const session = (await getM03Session(lineUserId)) ?? (await updateM03Session(lineUserId, { session_id: payload.sessionId || createM03SessionId(lineUserId), step: "waiting_for_reminder" }));
   const value = payload.value === "yes" ? "yes" : "no";
 
@@ -1010,6 +1089,7 @@ async function handleM03SettingChoice(replyToken: string, lineUserId: string, pa
 }
 
 async function handleM03CareEvent(replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  traceLineWebhook("handler.selected", { handler: "handleM03CareEvent", lineUserId, intent: payload.intent });
   if (!(await ensureM03RemoteReady())) {
     await replyToLine(replyToken, [{ type: "text", text: "關懷與配對服務還沒完成正式設定，所以今天先不幫你留下這筆互動。稍後再試試看。" }]);
     return;
@@ -1047,6 +1127,7 @@ async function handleM03CareEvent(replyToken: string, lineUserId: string, payloa
 }
 
 async function handleM04Start(replyToken: string, category = "") {
+  traceLineWebhook("handler.selected", { handler: "handleM04Start", category });
   if (category) {
     const rows = await listCommunityInfo({ category, status: "active" });
     await replyToLine(replyToken, [{ type: "text", text: buildM04ListText(category, rows), quickReply: buildM04QuickReply() }]);
@@ -1073,6 +1154,15 @@ async function handleM04Start(replyToken: string, category = "") {
 }
 
 async function handlePostback(request: NextRequest, replyToken: string, lineUserId: string, payload: ParsedPostback) {
+  traceLineWebhook("postback.received", {
+    lineUserId,
+    module: payload.module,
+    action: payload.action,
+    category: payload.category,
+    intent: payload.intent,
+    setting: payload.setting,
+    value: payload.value,
+  });
   if (payload.module === "m01" && payload.action === "start") {
     await handleM01Start(request, replyToken, lineUserId);
     return;
@@ -1137,6 +1227,16 @@ async function handlePostback(request: NextRequest, replyToken: string, lineUser
 async function handleTextMessage(request: NextRequest, event: Extract<LineEvent, { type: "message" }>, lineUserId: string) {
   const text = event.message.text.trim();
   const lowerText = text.toLowerCase();
+  const [m01Session, m02Session, m03Session] = await Promise.all([getSession(lineUserId), getM02Session(lineUserId), getM03Session(lineUserId)]);
+
+  traceLineWebhook("message.received", {
+    lineUserId,
+    text,
+    m01SessionId: m01Session?.session_id ?? null,
+    m01CompletedDate: m01Session?.completed_date ?? null,
+    m02Status: m02Session?.status ?? null,
+    m03Step: m03Session?.step ?? null,
+  });
 
   if (M01_TEXT_TRIGGERS.has(text) || M01_TEXT_TRIGGERS.has(lowerText)) {
     await handleM01Start(request, event.replyToken, lineUserId);
@@ -1159,13 +1259,12 @@ async function handleTextMessage(request: NextRequest, event: Extract<LineEvent,
     return;
   }
 
-  const m03Session = await getM03Session(lineUserId);
   if (m03Session?.step === "waiting_for_name") {
     await handleM03NameInput(request, event.replyToken, lineUserId, text);
     return;
   }
 
-  if ((await getM02Session(lineUserId))?.status === "waiting_for_diary") {
+  if (m02Session?.status === "waiting_for_diary") {
     await handleM02DiaryInput(event.replyToken, lineUserId, text);
     return;
   }
@@ -1177,6 +1276,12 @@ async function handleEvent(request: NextRequest, event: LineEvent) {
   if (!("replyToken" in event) || !event.replyToken) return;
 
   const lineUserId = event.source?.userId ?? "anonymous_user";
+  traceLineWebhook("event.received", {
+    eventType: event.type,
+    lineUserId,
+    hasMessage: "message" in event,
+    hasPostback: "postback" in event,
+  });
 
   if (event.type === "follow") {
     await ensureParticipantSeed(lineUserId);
