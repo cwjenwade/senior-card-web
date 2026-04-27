@@ -104,7 +104,7 @@ export default function CardsClient({ cards, filterOptions, notice, error }: Pro
       });
   }, [cards, query, series, status, sort]);
 
-  const focusedCard = cards.find((card) => card.cardId === focusedCardId) ?? filteredCards[0] ?? null;
+  const focusedCard = focusedCardId ? cards.find((card) => card.cardId === focusedCardId) ?? null : null;
   const selectedCards = selectedIds.map((id) => draftEdits[id]).filter(Boolean);
 
   function toggleSelect(cardId: string) {

@@ -110,6 +110,7 @@ export type CardAdminFilters = {
 
 const CARD_TABLE = process.env.SUPABASE_CARD_TABLE || "card_catalog";
 let extendedColumnsSupport: boolean | null = null;
+let seriesColumnSupport: boolean | null = null;
 
 export const textTypes: TextType[] = ["問安語", "勵志語", "神佛金句"];
 
@@ -405,6 +406,27 @@ async function supportsExtendedCardCatalogColumns() {
   return extendedColumnsSupport;
 }
 
+async function supportsCardCatalogSeriesColumn() {
+  if (seriesColumnSupport !== null) {
+    return seriesColumnSupport;
+  }
+
+  const baseUrl = resolveSupabaseRestUrl();
+  const headers = supabaseHeaders();
+  if (!baseUrl || !headers) {
+    seriesColumnSupport = false;
+    return seriesColumnSupport;
+  }
+
+  const response = await fetch(`${baseUrl}/${CARD_TABLE}?select=series&limit=1`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  seriesColumnSupport = response.ok;
+  return seriesColumnSupport;
+}
+
 async function localReadCards() {
   return readLocalTable<CardCatalogRow>(CARD_TABLE);
 }
@@ -517,7 +539,6 @@ export async function upsertCardCatalog(input: CardCatalogUpsertInput) {
           style_main: row.style_main,
           style_sub: row.style_sub,
           tone: row.tone,
-          series: row.series,
           imagery: row.imagery,
           text_density: row.text_density,
           energy_level: row.energy_level,
@@ -535,6 +556,9 @@ export async function upsertCardCatalog(input: CardCatalogUpsertInput) {
           color_tone: row.tone === "明亮" ? "bright" : "calm",
           religious_content: row.style_main === "神佛金句" ? "high" : "none",
         };
+    if (!(await supportsCardCatalogSeriesColumn())) {
+      delete (payload as Partial<CardCatalogRow>).series;
+    }
     const saved = await supabaseInsert(CARD_TABLE, [payload], true);
     if (!saved) {
       throw new Error("Unable to upsert card_catalog row in Supabase.");

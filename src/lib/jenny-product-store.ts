@@ -412,7 +412,45 @@ export async function upsertParticipant(participantId: string, patch: Partial<Pa
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
-  const ok = await upsertRows(TABLES.participants, [next], "id", options);
+  let ok: boolean;
+  if (await tableAvailable(TABLES.participants)) {
+    ok = await supabaseInsert(TABLES.participants, [next], true);
+    if (!ok) {
+      ok = await supabaseInsert(
+        TABLES.participants,
+        [
+          {
+            id: next.id,
+            display_name: next.display_name,
+            age_band: next.age_band,
+            wants_partner: next.wants_partner,
+            wants_reminders: next.wants_reminders,
+            wants_to_help_others: next.wants_to_help_others,
+            wants_to_be_cared_for: next.wants_to_be_cared_for,
+            wants_chat_matching: next.wants_chat_matching,
+            reminder_opt_in: next.reminder_opt_in,
+            care_ambassador_opt_in: next.care_ambassador_opt_in,
+            wants_care: next.wants_care,
+            chat_match_opt_in: next.chat_match_opt_in,
+            created_at: next.created_at,
+            updated_at: next.updated_at,
+          },
+        ],
+        true,
+      );
+    }
+    if (!ok && options.allowFallback !== false) {
+      const existingRows = await readLocalTable<ParticipantRow>(TABLES.participants);
+      const index = existingRows.findIndex((row) => row.id === next.id);
+      const rows = [...existingRows];
+      if (index >= 0) rows[index] = next;
+      else rows.push(next);
+      await writeLocalTable(TABLES.participants, rows);
+      ok = true;
+    }
+  } else {
+    ok = await upsertRows(TABLES.participants, [next], "id", options);
+  }
   if (!ok && options.allowFallback === false) {
     throw new Error("M03 participant write requires remote participants columns to be ready.");
   }
