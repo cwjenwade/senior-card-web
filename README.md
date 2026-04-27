@@ -22,6 +22,7 @@ Open:
 
 - Dashboard: `http://localhost:3000`
 - Card admin: `http://localhost:3000/cards`
+- M03 page: `http://localhost:3000/m03`
 - Info admin: `http://localhost:3000/info-admin`
 - LINE webhook health: `http://localhost:3000/api/line/webhook`
 - System check JSON: `http://localhost:3000/api/admin/system-check`
@@ -49,6 +50,7 @@ APP_BASE_URL=
 
 - `/`
 - `/cards`
+- `/m03`
 - `/info-admin`
 - `/api/line/webhook`
 - `/api/m01/cards/[cardId]/image`
@@ -56,6 +58,8 @@ APP_BASE_URL=
 - `/api/cron/supabase-keepalive`
 - `/api/admin/cards`
 - `/api/admin/info`
+- `/api/m03/settings`
+- `/api/m03/actions`
 - `/api/admin/system-check`
 - `/api/admin/queues/run`
 - `/api/admin/queues/update`
@@ -123,7 +127,7 @@ Postback:
 
 - `module=m02&action=start`
 
-## M03 關懷與配對
+## M03 好友關懷與配對服務
 
 Current v1 behavior:
 
@@ -131,11 +135,19 @@ Current v1 behavior:
 - if not configured, run a lightweight setting flow:
   1. ask for display name
   2. ask whether diary reminders are welcome
-  3. ask whether the elder wants to be a care ambassador
+  3. ask whether the elder wants to help others
   4. ask whether the elder wants to be cared for
   5. ask whether the elder wants to join chat matching
-- write results to `participants` and placeholder `partner_links`
-- if already configured, show a compact summary and allow restart
+- write results to remote `participants`
+- create or update remote `partner_links`
+- allow low-intensity care actions through LINE or `/m03`
+- write low-intensity actions to `care_events`
+- if already configured, show a compact summary, pair status, and care-action shortcuts
+- web page `/m03` shows:
+  - settings
+  - pair status
+  - today's care actions
+  - chat matching pause / resume / exit
 
 Triggers:
 
@@ -149,6 +161,7 @@ Postbacks:
 - `module=m03&action=start`
 - `module=m03&action=restart`
 - `module=m03&action=set_option&setting=...&value=yes|no`
+- `module=m03&action=care_event&intent=send_greeting|request_care|willing_to_call`
 
 ## M04 最新活動與政策
 
@@ -185,6 +198,7 @@ Current product-layer target tables:
 - `diary_entries`
 - `egg_progress`
 - `partner_links`
+- `care_events`
 - `community_info`
 - `partner_prompt_queue`
 - `internal_review_queue`
@@ -194,7 +208,7 @@ Legacy compatibility tables still used:
 - `line_interaction_events`
 - `line_diary_entries`
 
-If the formal product tables do not yet exist in Supabase, the app falls back to local JSON storage under `storage/product-store` for the new product tables while still using legacy webhook-compatible storage where available.
+M03 friend-care writes are expected to go to remote tables only. If the required remote schema is not ready, M03 should show a setup-needed message instead of silently writing to local fallback.
 
 ## External Card Asset Mode
 
@@ -341,6 +355,7 @@ In LINE:
 2. Send a short message under 50 characters and confirm it is rejected.
 3. Send a valid diary entry.
 4. Send another diary entry on the same day and confirm it is blocked.
+5. Toggle M03 reminders off and confirm the reminder dry-run no longer selects that participant.
 
 Expected data:
 
@@ -355,15 +370,17 @@ In LINE:
 1. Tap `關懷與配對`.
 2. Enter a display name.
 3. Choose whether diary reminders are welcome.
-4. Choose whether the elder wants to be a care ambassador.
+4. Choose whether the elder wants to help others.
 5. Choose whether the elder wants to be cared for.
 6. Choose whether the elder wants chat matching.
 7. Tap `關懷與配對` again and confirm the summary is shown.
+8. Trigger `送出問候` or `今天想聊聊` and confirm a `care_events` row is created.
 
 Expected data:
 
 - `participants`
-- placeholder `partner_links`
+- `partner_links`
+- `care_events`
 
 ## 5. M04 validation
 

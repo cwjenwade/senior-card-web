@@ -6,6 +6,10 @@ export type ParticipantRow = {
   display_name: string;
   age_band: string;
   wants_partner: boolean;
+  wants_reminders: boolean;
+  wants_to_help_others: boolean;
+  wants_to_be_cared_for: boolean;
+  wants_chat_matching: boolean;
   reminder_opt_in: boolean;
   care_ambassador_opt_in: boolean;
   wants_care: boolean;
@@ -85,13 +89,23 @@ export type EggProgressRow = {
 
 export type PartnerLinkRow = {
   id: string;
+  link_id?: string;
   participant_id: string;
   partner_participant_id: string;
-  status: string;
-  link_type?: string;
-  match_status?: string;
+  status: "pending" | "matched" | "paused" | "closed";
+  link_type: "care_pair" | "chat_pair";
+  match_status?: "pending" | "matched" | "paused" | "closed";
   chat_enabled?: boolean;
   updated_at?: string;
+  created_at: string;
+};
+
+export type CareEventRow = {
+  event_id: string;
+  participant_id: string;
+  target_participant_id: string;
+  event_type: "send_greeting" | "request_care" | "willing_to_call" | "mark_available" | "pause_matching";
+  note: string;
   created_at: string;
 };
 
@@ -141,10 +155,15 @@ const TABLES = {
   diaryEntries: "diary_entries",
   eggProgress: "egg_progress",
   partnerLinks: "partner_links",
+  careEvents: "care_events",
   communityInfo: "community_info",
   partnerPromptQueue: "partner_prompt_queue",
   internalReviewQueue: "internal_review_queue",
 } as const;
+
+type DataAccessOptions = {
+  allowFallback?: boolean;
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -154,20 +173,77 @@ function toBoolean(value: unknown) {
   return value === true || value === "true" || value === "1" || value === 1;
 }
 
+function normalizeParticipantRow(raw: Partial<ParticipantRow> & Record<string, unknown>) {
+  const wantsReminders = toBoolean(raw.wants_reminders ?? raw.reminder_opt_in);
+  const wantsToHelpOthers = toBoolean(raw.wants_to_help_others ?? raw.care_ambassador_opt_in);
+  const wantsToBeCaredFor = toBoolean(raw.wants_to_be_cared_for ?? raw.wants_care ?? raw.wants_partner);
+  const wantsChatMatching = toBoolean(raw.wants_chat_matching ?? raw.chat_match_opt_in);
+
+  return {
+    id: String(raw.id ?? ""),
+    display_name: String(raw.display_name ?? ""),
+    age_band: String(raw.age_band ?? ""),
+    wants_partner: wantsToBeCaredFor,
+    wants_reminders: wantsReminders,
+    wants_to_help_others: wantsToHelpOthers,
+    wants_to_be_cared_for: wantsToBeCaredFor,
+    wants_chat_matching: wantsChatMatching,
+    reminder_opt_in: wantsReminders,
+    care_ambassador_opt_in: wantsToHelpOthers,
+    wants_care: wantsToBeCaredFor,
+    chat_match_opt_in: wantsChatMatching,
+    m03_completed_at: raw.m03_completed_at ? String(raw.m03_completed_at) : null,
+    created_at: String(raw.created_at ?? nowIso()),
+    updated_at: String(raw.updated_at ?? nowIso()),
+  } satisfies ParticipantRow;
+}
+
+function normalizePartnerLinkRow(raw: Partial<PartnerLinkRow> & Record<string, unknown>) {
+  const rawLinkType = String(raw.link_type ?? "care_pair");
+  const linkType: PartnerLinkRow["link_type"] =
+    rawLinkType === "chat" || rawLinkType === "chat_pair" ? "chat_pair" : "care_pair";
+  const rawStatus = String(raw.status ?? raw.match_status ?? "pending");
+  const status: PartnerLinkRow["status"] =
+    rawStatus === "matched" || rawStatus === "paused" || rawStatus === "closed"
+      ? rawStatus
+      : rawStatus === "active"
+        ? "matched"
+        : "pending";
+
+  return {
+    id: String(raw.id ?? raw.link_id ?? ""),
+    link_id: String(raw.link_id ?? raw.id ?? ""),
+    participant_id: String(raw.participant_id ?? ""),
+    partner_participant_id: String(raw.partner_participant_id ?? ""),
+    status,
+    link_type: linkType,
+    match_status: status,
+    chat_enabled: toBoolean(raw.chat_enabled ?? linkType === "chat_pair"),
+    updated_at: String(raw.updated_at ?? raw.created_at ?? nowIso()),
+    created_at: String(raw.created_at ?? nowIso()),
+  } satisfies PartnerLinkRow;
+}
+
 async function tableAvailable(table: string) {
   return canUseSupabase() && (await hasTable(table));
 }
 
-async function readRows<T>(table: string) {
+async function readRows<T>(table: string, options: DataAccessOptions = {}) {
   if (await tableAvailable(table)) {
     return supabaseSelect<T>(table, "select=*&limit=1000");
+  }
+  if (options.allowFallback === false) {
+    return [] as T[];
   }
   return readLocalTable<T>(table);
 }
 
-async function upsertRows<T extends { [key: string]: unknown }>(table: string, rows: T[], keyField: keyof T) {
+async function upsertRows<T extends { [key: string]: unknown }>(table: string, rows: T[], keyField: keyof T, options: DataAccessOptions = {}) {
   if (await tableAvailable(table)) {
     return supabaseInsert(table, rows, true);
+  }
+  if (options.allowFallback === false) {
+    return false;
   }
 
   const existing = await readLocalTable<T>(table);
@@ -184,9 +260,18 @@ async function upsertRows<T extends { [key: string]: unknown }>(table: string, r
   return true;
 }
 
-async function patchRow<T extends { [key: string]: unknown }>(table: string, keyField: keyof T, keyValue: string, patch: Partial<T>) {
+async function patchRow<T extends { [key: string]: unknown }>(
+  table: string,
+  keyField: keyof T,
+  keyValue: string,
+  patch: Partial<T>,
+  options: DataAccessOptions = {},
+) {
   if (await tableAvailable(table)) {
     return supabasePatch(table, `${String(keyField)}=eq.${encodeURIComponent(keyValue)}`, patch as Record<string, unknown>);
+  }
+  if (options.allowFallback === false) {
+    return false;
   }
 
   const existing = await readLocalTable<T>(table);
@@ -205,33 +290,52 @@ export async function listKnownTables() {
   return checks;
 }
 
-export async function getParticipant(participantId: string) {
-  const rows = await readRows<ParticipantRow>(TABLES.participants);
-  return rows.find((row) => row.id === participantId) ?? null;
+export async function hasRequiredTables(tableNames: string[]) {
+  const checks = await Promise.all(tableNames.map((table) => tableAvailable(table)));
+  return checks.every(Boolean);
 }
 
-export async function listParticipants() {
-  const rows = await readRows<ParticipantRow>(TABLES.participants);
-  return rows.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+export async function getParticipant(participantId: string, options: DataAccessOptions = {}) {
+  const rows = await readRows<Record<string, unknown>>(TABLES.participants, options);
+  return rows.map(normalizeParticipantRow).find((row) => row.id === participantId) ?? null;
 }
 
-export async function upsertParticipant(participantId: string, patch: Partial<ParticipantRow>) {
+export async function listParticipants(options: DataAccessOptions = {}) {
+  const rows = await readRows<Record<string, unknown>>(TABLES.participants, options);
+  return rows.map(normalizeParticipantRow).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+export async function upsertParticipant(participantId: string, patch: Partial<ParticipantRow>, options: DataAccessOptions = {}) {
   const now = nowIso();
-  const existing = await getParticipant(participantId);
+  const existing = await getParticipant(participantId, options);
+  const wantsReminders = patch.wants_reminders ?? patch.reminder_opt_in ?? existing?.wants_reminders ?? existing?.reminder_opt_in ?? false;
+  const wantsToHelpOthers =
+    patch.wants_to_help_others ?? patch.care_ambassador_opt_in ?? existing?.wants_to_help_others ?? existing?.care_ambassador_opt_in ?? false;
+  const wantsToBeCaredFor =
+    patch.wants_to_be_cared_for ?? patch.wants_care ?? patch.wants_partner ?? existing?.wants_to_be_cared_for ?? existing?.wants_care ?? existing?.wants_partner ?? false;
+  const wantsChatMatching =
+    patch.wants_chat_matching ?? patch.chat_match_opt_in ?? existing?.wants_chat_matching ?? existing?.chat_match_opt_in ?? false;
   const next: ParticipantRow = {
     id: participantId,
     display_name: patch.display_name ?? existing?.display_name ?? participantId,
     age_band: patch.age_band ?? existing?.age_band ?? "",
-    wants_partner: patch.wants_partner ?? existing?.wants_partner ?? false,
-    reminder_opt_in: patch.reminder_opt_in ?? existing?.reminder_opt_in ?? false,
-    care_ambassador_opt_in: patch.care_ambassador_opt_in ?? existing?.care_ambassador_opt_in ?? false,
-    wants_care: patch.wants_care ?? existing?.wants_care ?? false,
-    chat_match_opt_in: patch.chat_match_opt_in ?? existing?.chat_match_opt_in ?? false,
+    wants_partner: wantsToBeCaredFor,
+    wants_reminders: wantsReminders,
+    wants_to_help_others: wantsToHelpOthers,
+    wants_to_be_cared_for: wantsToBeCaredFor,
+    wants_chat_matching: wantsChatMatching,
+    reminder_opt_in: wantsReminders,
+    care_ambassador_opt_in: wantsToHelpOthers,
+    wants_care: wantsToBeCaredFor,
+    chat_match_opt_in: wantsChatMatching,
     m03_completed_at: patch.m03_completed_at ?? existing?.m03_completed_at ?? null,
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
-  await upsertRows(TABLES.participants, [next], "id");
+  const ok = await upsertRows(TABLES.participants, [next], "id", options);
+  if (!ok && options.allowFallback === false) {
+    throw new Error("M03 participant write requires remote participants columns to be ready.");
+  }
   return next;
 }
 
@@ -337,27 +441,204 @@ export async function getEggProgress(participantId: string, today?: string) {
   return existing;
 }
 
-export async function upsertPartnerLink(row: PartnerLinkRow) {
+export async function upsertPartnerLink(row: PartnerLinkRow, options: DataAccessOptions = {}) {
   const next: PartnerLinkRow = {
     ...row,
-    link_type: row.link_type ?? "care",
-    match_status: row.match_status ?? "waiting_match",
-    chat_enabled: row.chat_enabled ?? false,
+    id: row.id || row.link_id || `link-${Date.now()}`,
+    link_id: row.link_id ?? row.id,
+    link_type: row.link_type,
+    status: row.status,
+    match_status: row.match_status ?? row.status,
+    chat_enabled: row.chat_enabled ?? row.link_type === "chat_pair",
     updated_at: row.updated_at ?? nowIso(),
   };
-  await upsertRows(TABLES.partnerLinks, [next], "id");
+  const ok = await upsertRows(TABLES.partnerLinks, [next], "id", options);
+  if (!ok && options.allowFallback === false) {
+    throw new Error("M03 partner link write requires remote partner_links columns to be ready.");
+  }
   return next;
 }
 
-export async function getPartnerLink(participantId: string) {
-  const rows = await readRows<PartnerLinkRow>(TABLES.partnerLinks);
-  return rows.find((row) => row.participant_id === participantId && row.status !== "closed") ?? null;
+export async function getPartnerLink(participantId: string, options: DataAccessOptions = {}) {
+  const rows = await readRows<Record<string, unknown>>(TABLES.partnerLinks, options);
+  const normalized = rows.map(normalizePartnerLinkRow);
+  return (
+    normalized.find((row) => row.participant_id === participantId && row.link_type === "care_pair" && row.status !== "closed") ??
+    normalized.find((row) => row.participant_id === participantId && row.status !== "closed") ??
+    null
+  );
 }
 
-export async function listPartnerLinks(participantId?: string) {
-  const rows = await readRows<PartnerLinkRow>(TABLES.partnerLinks);
+export async function listPartnerLinks(participantId?: string, options: DataAccessOptions = {}) {
+  const rows = (await readRows<Record<string, unknown>>(TABLES.partnerLinks, options)).map(normalizePartnerLinkRow);
   const filtered = participantId ? rows.filter((row) => row.participant_id === participantId) : rows;
   return filtered.sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at));
+}
+
+export async function listCareEvents(participantId?: string, options: DataAccessOptions = {}) {
+  const rows = await readRows<CareEventRow>(TABLES.careEvents, options);
+  const filtered = participantId ? rows.filter((row) => row.participant_id === participantId) : rows;
+  return filtered.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function recordCareEvent(row: CareEventRow, options: DataAccessOptions = {}) {
+  const ok = await upsertRows(TABLES.careEvents, [row], "event_id", options);
+  if (!ok && options.allowFallback === false) {
+    throw new Error("M03 care event write requires remote care_events table to be ready.");
+  }
+  return row;
+}
+
+function poolIdForLinkType(linkType: PartnerLinkRow["link_type"]) {
+  return linkType === "chat_pair" ? "chat-pool" : "care-pool";
+}
+
+function findPairLink(
+  rows: PartnerLinkRow[],
+  participantId: string,
+  linkType: PartnerLinkRow["link_type"],
+) {
+  return rows.find((row) => row.participant_id === participantId && row.link_type === linkType && row.status !== "closed") ?? null;
+}
+
+async function setPairedLinks(
+  participantId: string,
+  partnerId: string,
+  linkType: PartnerLinkRow["link_type"],
+  createdAt: string,
+  options: DataAccessOptions,
+) {
+  const leftId = `${linkType}-${participantId}-${partnerId}`;
+  const rightId = `${linkType}-${partnerId}-${participantId}`;
+  await upsertPartnerLink(
+    {
+      id: leftId,
+      link_id: leftId,
+      participant_id: participantId,
+      partner_participant_id: partnerId,
+      link_type: linkType,
+      status: "matched",
+      match_status: "matched",
+      chat_enabled: linkType === "chat_pair",
+      created_at: createdAt,
+      updated_at: createdAt,
+    },
+    options,
+  );
+  await upsertPartnerLink(
+    {
+      id: rightId,
+      link_id: rightId,
+      participant_id: partnerId,
+      partner_participant_id: participantId,
+      link_type: linkType,
+      status: "matched",
+      match_status: "matched",
+      chat_enabled: linkType === "chat_pair",
+      created_at: createdAt,
+      updated_at: createdAt,
+    },
+    options,
+  );
+}
+
+export async function syncM03Pairs(participantId: string, options: DataAccessOptions = {}) {
+  const participants = await listParticipants(options);
+  const current = participants.find((row) => row.id === participantId);
+  if (!current) return null;
+
+  const now = nowIso();
+  const links = await listPartnerLinks(undefined, options);
+
+  const currentCareLink = findPairLink(links, participantId, "care_pair");
+  const currentChatLink = findPairLink(links, participantId, "chat_pair");
+
+  if (current.wants_to_be_cared_for) {
+    if (!currentCareLink) {
+      await upsertPartnerLink(
+        {
+          id: `care_pair-${participantId}-pending`,
+          link_id: `care_pair-${participantId}-pending`,
+          participant_id: participantId,
+          partner_participant_id: poolIdForLinkType("care_pair"),
+          link_type: "care_pair",
+          status: "pending",
+          match_status: "pending",
+          chat_enabled: false,
+          created_at: now,
+          updated_at: now,
+        },
+        options,
+      );
+    }
+
+    const helperCandidates = participants
+      .filter((row) => row.id !== participantId && row.wants_to_help_others)
+      .filter((row) => !findPairLink(links, row.id, "care_pair") || findPairLink(links, row.id, "care_pair")?.status !== "matched")
+      .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+
+    const helper = helperCandidates[0];
+    if (helper) {
+      await setPairedLinks(participantId, helper.id, "care_pair", now, options);
+    }
+  } else if (currentCareLink) {
+    await upsertPartnerLink(
+      {
+        ...currentCareLink,
+        partner_participant_id: currentCareLink.partner_participant_id || poolIdForLinkType("care_pair"),
+        status: "closed",
+        match_status: "closed",
+        updated_at: now,
+      },
+      options,
+    );
+  }
+
+  if (current.wants_chat_matching) {
+    if (!currentChatLink) {
+      await upsertPartnerLink(
+        {
+          id: `chat_pair-${participantId}-pending`,
+          link_id: `chat_pair-${participantId}-pending`,
+          participant_id: participantId,
+          partner_participant_id: poolIdForLinkType("chat_pair"),
+          link_type: "chat_pair",
+          status: "pending",
+          match_status: "pending",
+          chat_enabled: true,
+          created_at: now,
+          updated_at: now,
+        },
+        options,
+      );
+    }
+
+    const chatCandidates = participants
+      .filter((row) => row.id !== participantId && row.wants_chat_matching)
+      .filter((row) => !findPairLink(links, row.id, "chat_pair") || findPairLink(links, row.id, "chat_pair")?.status !== "matched")
+      .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+
+    const chatPartner = chatCandidates[0];
+    if (chatPartner) {
+      await setPairedLinks(participantId, chatPartner.id, "chat_pair", now, options);
+    }
+  } else if (currentChatLink) {
+    await upsertPartnerLink(
+      {
+        ...currentChatLink,
+        partner_participant_id: currentChatLink.partner_participant_id || poolIdForLinkType("chat_pair"),
+        status: "closed",
+        match_status: "closed",
+        updated_at: now,
+      },
+      options,
+    );
+  }
+
+  return {
+    care: await listPartnerLinks(participantId, options),
+    participant: await getParticipant(participantId, options),
+  };
 }
 
 export async function listCommunityInfo(filters?: {
@@ -442,7 +723,7 @@ export async function runQueueDetection(today: string, versions?: { modelVersion
     const latest = diaries.at(-1) ?? null;
     const partnerLink = await getPartnerLink(participant.id);
 
-    if (participant.wants_partner && partnerLink) {
+    if (participant.wants_to_be_cared_for && partnerLink) {
       const lastDate = latest?.entry_date ?? "";
       const silenceDays = lastDate ? Math.max(0, Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastDate}T00:00:00Z`)) / 86400000)) : 999;
       const recentThree = diaries.slice(-3);

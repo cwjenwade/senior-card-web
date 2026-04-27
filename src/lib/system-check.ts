@@ -67,7 +67,7 @@ export async function runSystemCheck() {
     {
       title: "M03 care and matching settings",
       status: "completed",
-      detail: "Name, reminder, care ambassador, cared-for, and chat matching settings are available through LINE.",
+      detail: "Name, reminder, helper, cared-for, and chat matching settings are available through LINE and /m03, with low-intensity care events.",
     },
     {
       title: "M04 info service",

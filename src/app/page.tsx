@@ -54,6 +54,9 @@ export default async function HomePage() {
             <Link className="rounded-full border border-sky-700 px-4 py-2 text-sky-100" href="/cards">
               長輩圖管理後台
             </Link>
+            <Link className="rounded-full border border-cyan-700 px-4 py-2 text-cyan-100" href="/m03">
+              關懷與配對頁面
+            </Link>
             <Link className="rounded-full border border-emerald-700 px-4 py-2 text-emerald-100" href="/info-admin">
               活動與政策後台
             </Link>
@@ -100,10 +103,10 @@ export default async function HomePage() {
                       <StatusPill ready={Boolean(participant.m03_completed_at)} />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <OnOffPill label="提醒" on={participant.reminder_opt_in} />
-                      <OnOffPill label="關懷大使" on={participant.care_ambassador_opt_in} />
-                      <OnOffPill label="被關懷" on={participant.wants_care} />
-                      <OnOffPill label="聊天配對" on={participant.chat_match_opt_in} />
+                      <OnOffPill label="提醒" on={participant.wants_reminders} />
+                      <OnOffPill label="關懷大使" on={participant.wants_to_help_others} />
+                      <OnOffPill label="被關懷" on={participant.wants_to_be_cared_for} />
+                      <OnOffPill label="聊天配對" on={participant.wants_chat_matching} />
                     </div>
                     <p className="mt-3 text-sm text-stone-300">
                       兩週進度：{eggProgress?.days_completed ?? 0} / 10

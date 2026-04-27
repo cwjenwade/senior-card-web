@@ -8,7 +8,7 @@ This document records the target product tables for M01 to M04 and the current m
 
 | Target table | Purpose | Current source before full migration |
 | --- | --- | --- |
-| `participants` | M03 lightweight participant profile | new product table or local fallback |
+| `participants` | M03 friend care settings and reminder preferences | new product table or local fallback |
 | `card_catalog` | M01 card metadata library with external `image_url` | Supabase `card_catalog` or local metadata fallback |
 | `card_preferences` | style preference summary from M03 | new product table or local fallback |
 | `card_interactions` | M01/M02 product-level card actions | new product table or local fallback |
@@ -16,7 +16,8 @@ This document records the target product tables for M01 to M04 and the current m
 | `guided_diary_prompts` | selected card to M02 diary prompt bridge | new product table or local fallback |
 | `diary_entries` | product-facing diary storage with analysis fields | new product table or local fallback |
 | `egg_progress` | 14-day participation progress | new product table or local fallback |
-| `partner_links` | M03 care / ambassador / chat placeholder link state | new product table or local fallback |
+| `partner_links` | M03 care pair / chat pair state | new product table or local fallback |
+| `care_events` | M03 low-intensity interaction log | new product table or local fallback |
 | `community_info` | M04 policy / neighborhood / temple / community content | new product table or local fallback |
 | `partner_prompt_queue` | internal partner reminder queue | new product table or local fallback |
 | `internal_review_queue` | internal review queue | new product table or local fallback |
@@ -57,11 +58,15 @@ Mapping:
 | `id` | text | participant primary key, currently LINE user id |
 | `display_name` | text | M03 chosen name |
 | `age_band` | text | optional placeholder, not asked from elder in v1 |
-| `wants_partner` | boolean | legacy internal flag, now mirrors `wants_care` for internal queue logic |
-| `reminder_opt_in` | boolean | whether 18:00 / 20:00 diary reminders are allowed |
-| `care_ambassador_opt_in` | boolean | whether the elder is willing to care for others |
-| `wants_care` | boolean | whether the elder wants someone to check in |
-| `chat_match_opt_in` | boolean | whether the elder is open to friend/chat matching |
+| `wants_partner` | boolean | legacy internal flag, now mirrors `wants_to_be_cared_for` for internal queue logic |
+| `wants_reminders` | boolean | canonical M03 flag for 18:00 / 20:00 diary reminders |
+| `wants_to_help_others` | boolean | canonical M03 flag for care ambassador eligibility |
+| `wants_to_be_cared_for` | boolean | canonical M03 flag for care-pair eligibility |
+| `wants_chat_matching` | boolean | canonical M03 flag for chat-pair eligibility |
+| `reminder_opt_in` | boolean | compatibility mirror of `wants_reminders` |
+| `care_ambassador_opt_in` | boolean | compatibility mirror of `wants_to_help_others` |
+| `wants_care` | boolean | compatibility mirror of `wants_to_be_cared_for` |
+| `chat_match_opt_in` | boolean | compatibility mirror of `wants_chat_matching` |
 | `m03_completed_at` | timestamptz | first completed setting timestamp |
 | `created_at` | timestamptz | row creation time |
 | `updated_at` | timestamptz | last update time |
@@ -198,15 +203,27 @@ Mapping:
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | text | primary key |
+| `id` | text | internal primary key, mirrored to `link_id` |
+| `link_id` | text | public pair-link id |
 | `participant_id` | text | elder |
-| `partner_participant_id` | text | current v1 placeholder can be a matching pool id |
-| `status` | text | `active`, `inactive`, `pending`, `closed` |
-| `link_type` | text | `care`, `ambassador`, `chat` |
-| `match_status` | text | `waiting_match`, `waiting_assignment`, `matched`, `off` |
-| `chat_enabled` | boolean | true only for chat matching placeholders |
+| `partner_participant_id` | text | matched partner id or placeholder pool id |
+| `status` | text | `pending`, `matched`, `paused`, `closed` |
+| `link_type` | text | `care_pair`, `chat_pair` |
+| `match_status` | text | compatibility mirror of `status` |
+| `chat_enabled` | boolean | true only for chat-pair rows |
 | `updated_at` | timestamptz | latest change |
 | `created_at` | timestamptz | creation time |
+
+## `care_events`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `event_id` | text | primary key |
+| `participant_id` | text | event creator |
+| `target_participant_id` | text | target partner or placeholder pool |
+| `event_type` | text | `send_greeting`, `request_care`, `willing_to_call`, `mark_available`, `pause_matching` |
+| `note` | text | elder-friendly explanation or internal note |
+| `created_at` | timestamptz | event time |
 
 ## `community_info`
 

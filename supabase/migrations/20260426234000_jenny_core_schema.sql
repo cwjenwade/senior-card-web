@@ -3,6 +3,10 @@ create table if not exists public.participants (
   display_name text not null default '',
   age_band text not null default '',
   wants_partner boolean not null default false,
+  wants_reminders boolean not null default false,
+  wants_to_help_others boolean not null default false,
+  wants_to_be_cared_for boolean not null default false,
+  wants_chat_matching boolean not null default false,
   reminder_opt_in boolean not null default false,
   care_ambassador_opt_in boolean not null default false,
   wants_care boolean not null default false,
@@ -12,6 +16,10 @@ create table if not exists public.participants (
   updated_at timestamptz not null default now()
 );
 
+alter table if exists public.participants add column if not exists wants_reminders boolean not null default false;
+alter table if exists public.participants add column if not exists wants_to_help_others boolean not null default false;
+alter table if exists public.participants add column if not exists wants_to_be_cared_for boolean not null default false;
+alter table if exists public.participants add column if not exists wants_chat_matching boolean not null default false;
 alter table if exists public.participants add column if not exists reminder_opt_in boolean not null default false;
 alter table if exists public.participants add column if not exists care_ambassador_opt_in boolean not null default false;
 alter table if exists public.participants add column if not exists wants_care boolean not null default false;
@@ -124,20 +132,33 @@ create table if not exists public.egg_progress (
 
 create table if not exists public.partner_links (
   id text primary key,
+  link_id text unique not null,
   participant_id text not null references public.participants(id) on delete cascade,
   partner_participant_id text not null,
-  status text not null default 'active',
-  link_type text not null default 'care',
-  match_status text not null default 'waiting_match',
+  status text not null default 'pending',
+  link_type text not null default 'care_pair',
+  match_status text not null default 'pending',
   chat_enabled boolean not null default false,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 
-alter table if exists public.partner_links add column if not exists link_type text not null default 'care';
-alter table if exists public.partner_links add column if not exists match_status text not null default 'waiting_match';
+alter table if exists public.partner_links add column if not exists link_id text;
+update public.partner_links set link_id = id where link_id is null;
+alter table if exists public.partner_links add column if not exists link_type text not null default 'care_pair';
+alter table if exists public.partner_links add column if not exists match_status text not null default 'pending';
 alter table if exists public.partner_links add column if not exists chat_enabled boolean not null default false;
 alter table if exists public.partner_links add column if not exists updated_at timestamptz not null default now();
+create unique index if not exists idx_partner_links_link_id on public.partner_links (link_id);
+
+create table if not exists public.care_events (
+  event_id text primary key,
+  participant_id text not null references public.participants(id) on delete cascade,
+  target_participant_id text not null default '',
+  event_type text not null,
+  note text not null default '',
+  created_at timestamptz not null default now()
+);
 
 create table if not exists public.community_info (
   info_id text primary key,
@@ -219,6 +240,7 @@ create unique index if not exists idx_daily_card_recommendations_unique on publi
 create unique index if not exists idx_guided_diary_prompts_unique on public.guided_diary_prompts (participant_id, prompt_date);
 create unique index if not exists idx_partner_prompt_queue_dedupe on public.partner_prompt_queue (participant_id, trigger_type, trigger_date);
 create unique index if not exists idx_internal_review_queue_dedupe on public.internal_review_queue (participant_id, trigger_type, trigger_date);
+create index if not exists idx_care_events_participant_time on public.care_events (participant_id, created_at desc);
 create index if not exists idx_community_info_category_status on public.community_info (category, status, event_date desc);
 
 insert into public.community_info (

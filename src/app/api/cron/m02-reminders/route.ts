@@ -54,11 +54,11 @@ export async function GET(request: NextRequest) {
       ? "今天如果還沒寫一句日記，晚餐後記得來寫一下喔。慢慢寫，滿 50 字就算完成今天的進度。"
       : "晚上八點了，如果今天還沒留下心情，現在補一段也來得及。寫滿 50 字，就能算進今天的雞蛋進度。";
 
-  const participants = await listParticipants();
+  const participants = await listParticipants({ allowFallback: false });
   const eligible = [];
 
   for (const participant of participants) {
-    if (!participant.reminder_opt_in) continue;
+    if (!participant.wants_reminders) continue;
     if (await hasCompletedToday(participant.id, today)) continue;
     if (await hasReminderBeenSent(participant.id, today, hour as 18 | 20)) continue;
     eligible.push(participant);
